@@ -312,10 +312,21 @@ const DEFAULT_DB: DB = {
 };
 
 // Database Helpers
+let inMemoryDB: DB | null = null;
+
 function readDB(): DB {
+  if (inMemoryDB) {
+    return inMemoryDB;
+  }
   try {
     if (!fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2), "utf8");
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2), "utf8");
+      } catch (e) {
+        // Fallback to in-memory if write is read-only
+        inMemoryDB = DEFAULT_DB;
+        return inMemoryDB;
+      }
       return DEFAULT_DB;
     }
     const data = fs.readFileSync(DB_FILE, "utf8");
@@ -375,17 +386,26 @@ function readDB(): DB {
       db.publish_logs = [...DEFAULT_DB.publish_logs];
     }
 
-    // Force write-back to keep DB in sync
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+    try {
+      // Force write-back to keep DB in sync
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+    } catch (e) {
+      // Ignore write-back error, we'll store in-memory
+    }
 
+    inMemoryDB = db;
     return db;
   } catch (err) {
     console.error("Error reading database file, returning default:", err);
-    return DEFAULT_DB;
+    if (!inMemoryDB) {
+      inMemoryDB = DEFAULT_DB;
+    }
+    return inMemoryDB;
   }
 }
 
 function writeDB(db: DB) {
+  inMemoryDB = db;
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
   } catch (err) {
@@ -2293,4 +2313,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
