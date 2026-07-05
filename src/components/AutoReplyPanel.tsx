@@ -290,19 +290,22 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         );
         if (!connectedLoginAcc) return null;
         return (
-          <div className="mt-6 bg-[#f7f5f0] border border-[#d5ced1] p-4 rounded-2xl flex items-start space-x-3 text-[#524a3e] shadow-sm">
-            <CheckCircle className="text-emerald-600 mt-0.5 shrink-0" size={18} />
+          <div className="mt-6 bg-[#fdf2f2] border border-[#f5c6cb] p-4 rounded-2xl flex items-start space-x-3 text-[#721c24] shadow-sm">
+            <ShieldAlert className="text-[#dc3545] mt-0.5 shrink-0" size={18} />
             <div className="text-xs space-y-1">
-              <p className="font-bold font-mono uppercase tracking-wider text-emerald-800 text-[10px] flex items-center">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
-                Live Physical Auto-Reply Activated
+              <p className="font-bold font-mono uppercase tracking-wider text-[#bd2130] text-[10px] flex items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#dc3545] animate-pulse mr-1.5" />
+                ⚠️ Direct Message Auto-Reply Warning
               </p>
               <p className="leading-relaxed">
-                Your account <strong>@{connectedLoginAcc.username}</strong> is fully connected using an Instagram Graph API Token (<code className="bg-stone-200/60 px-1 rounded font-mono">IGAAV...</code>).
-                We will automatically monitor incoming physical webhook events for real direct messages (DMs) and comments, and immediately issue automatic replies based on your configured rules.
+                Your account <strong>@{connectedLoginAcc.username}</strong> is connected using an <strong>Instagram Basic Display Token</strong> (<code className="bg-[#f8d7da] px-1 rounded font-mono text-[#721c24]">IGAAV...</code>).
+                While this token supports scheduling posts, Meta <strong>blocks</strong> basic tokens from receiving webhooks and sending direct message replies.
               </p>
-              <p className="leading-relaxed text-[11px] text-stone-600">
-                ⚡ <strong>Testing:</strong> You can also use the <strong>Interactive DM Simulator & Sandbox</strong> tab below to test your static and AI-powered reply rules instantly in a sandboxed environment! Live webhook logs will appear in the <strong>System Logs</strong> on your Dashboard.
+              <p className="leading-relaxed text-[11px] text-[#856404] bg-[#fff3cd] border border-[#ffeeba] p-2 rounded-lg mt-2 font-mono">
+                💡 <strong>To Enable Real DM Replies:</strong> You must connect an <strong>Instagram Business or Creator</strong> profile using a <strong>Facebook Page Access Token</strong> (starts with <code className="bg-[#fff px-1 rounded font-mono">EAA...</code>) via the Link Account flow.
+              </p>
+              <p className="leading-relaxed text-[11px] text-[#524a3e] mt-2">
+                ⚡ <strong>Testing:</strong> In the meantime, you can use the <strong>Interactive DM Simulator & Sandbox</strong> tab below to test your static and AI-powered auto-reply rules instantly in our sandboxed environment!
               </p>
             </div>
           </div>

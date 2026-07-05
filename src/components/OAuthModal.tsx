@@ -323,11 +323,15 @@ export default function OAuthModal({ isOpen, onClose, onConnect }: OAuthModalPro
                           Requires <code className="text-zinc-400">instagram_content_publish</code>, <code className="text-zinc-400">instagram_basic</code>, and <code className="text-zinc-400">pages_show_list</code> permissions.
                         </p>
                         {igAccessToken.trim().toUpperCase().startsWith("IGAA") && (
-                          <div className="p-3 bg-blue-950/30 border border-blue-900/40 text-blue-400 rounded-xl text-[10px] leading-normal font-mono mt-2">
-                            <span className="font-bold block uppercase tracking-wide text-blue-300">ℹ️ Instagram Login Token Detected</span>
-                            You entered an Instagram Login Access Token (starts with <code className="text-white">IGAA...</code>). We fully support this!
-                            <br className="mt-1" />
-                            Our system will automatically route your publishing requests to <code className="text-white">graph.instagram.com</code>. Please ensure you have assigned the **Instagram Tester** role in your developer app and have enabled the <code className="text-blue-300 font-bold">instagram_content_publish</code> feature.
+                          <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded-xl text-[10px] leading-normal font-mono mt-2">
+                            <span className="font-bold block uppercase tracking-wide text-amber-300">⚠️ Instagram Basic Token (Publish-Only)</span>
+                            You entered an Instagram Basic Display/Login token (starts with <code className="text-white">IGAA...</code>).
+                            <br className="mt-1.5" />
+                            • <strong>Content Publishing:</strong> Fully supported!
+                            <br />
+                            • <strong>Auto-Replies / Direct Messages:</strong> <span className="text-red-400 font-bold">NOT SUPPORTED</span>. Meta blocks webhooks and automated messaging for Basic tokens.
+                            <br className="mt-1.5" />
+                            To automate real DMs and comments in real-time, you must connect an <strong>Instagram Professional (Business/Creator) Account</strong> using a <strong>Facebook Page Access Token</strong> (starts with <code className="text-white">EAA...</code>).
                           </div>
                         )}
                       </div>
