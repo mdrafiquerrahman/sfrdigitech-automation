@@ -1,10 +1,8 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { Jimp } from "jimp";
 
 dotenv.config();
 
@@ -25,13 +23,10 @@ app.use((req, res, next) => {
     }
     if (host) {
       const currentUrl = `${proto}://${host}`;
-      if (fs.existsSync(DB_FILE)) {
-        const data = fs.readFileSync(DB_FILE, "utf8");
-        const parsed = JSON.parse(data);
-        if (parsed && parsed.settings && parsed.settings.appPublicUrl !== currentUrl) {
-          parsed.settings.appPublicUrl = currentUrl;
-          fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), "utf8");
-        }
+      const db = readDB();
+      if (db && db.settings && db.settings.appPublicUrl !== currentUrl) {
+        db.settings.appPublicUrl = currentUrl;
+        writeDB(db);
       }
     }
   } catch (err) {
@@ -692,6 +687,7 @@ app.get("/api/media-public/:id", async (req, res) => {
 
       // Convert other formats (PNG, WebP, GIF, BMP, etc.) to JPEG
       try {
+        const { Jimp } = await import("jimp");
         const image = await Jimp.read(buffer);
         const jpegBuffer = await image.getBuffer("image/jpeg");
         res.setHeader("Content-Type", "image/jpeg");
@@ -1775,6 +1771,7 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
         });
         writeDB(dbLog);
 
+        const { Jimp } = await import("jimp");
         const image = await Jimp.read(buffer);
         buffer = await image.getBuffer("image/jpeg");
         contentType = "image/jpeg";
@@ -2295,6 +2292,7 @@ async function startServer() {
   runAutomatedScheduler();
 
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
