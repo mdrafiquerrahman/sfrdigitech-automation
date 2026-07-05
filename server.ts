@@ -36,7 +36,7 @@ app.use((req, res, next) => {
 });
 
 // Database file path
-const DB_FILE = path.join(process.cwd(), "posts_db.json");
+let DB_FILE = path.join(process.cwd(), "posts_db.json");
 
 interface User {
   id: string;
@@ -308,6 +308,41 @@ const DEFAULT_DB: DB = {
 
 // Database Helpers
 let inMemoryDB: DB | null = null;
+
+// Locate and prepare the database path/file
+let templateDbPath = DB_FILE;
+if (!fs.existsSync(templateDbPath)) {
+  const possiblePaths = [
+    path.join(__dirname, "posts_db.json"),
+    path.join(__dirname, "../posts_db.json"),
+    path.join(__dirname, "../../posts_db.json")
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      templateDbPath = p;
+      break;
+    }
+  }
+}
+
+if (process.env.VERCEL) {
+  const tmpPath = "/tmp/posts_db.json";
+  try {
+    if (!fs.existsSync(tmpPath)) {
+      let seedData = JSON.stringify(DEFAULT_DB, null, 2);
+      if (fs.existsSync(templateDbPath)) {
+        seedData = fs.readFileSync(templateDbPath, "utf8");
+      }
+      fs.writeFileSync(tmpPath, seedData, "utf8");
+    }
+    DB_FILE = tmpPath;
+  } catch (err) {
+    console.error("Failed to initialize writable DB in /tmp, falling back to template:", err);
+    DB_FILE = templateDbPath;
+  }
+} else {
+  DB_FILE = templateDbPath;
+}
 
 function readDB(): DB {
   if (inMemoryDB) {
