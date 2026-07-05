@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: instasched-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secure_postgres_pass
+      POSTGRES_DB: instasched
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 2. Next.js SaaS Web App (Frontend + REST API)
+  nextjs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: instasched-web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:secure_postgres_pass@postgres-db:5432/instasched?schema=public
+      - ENCRYPTION_KEY=your_fernet_256bit_aes_encryption_key_here
+    depends_on:
+      - postgres-db
+
+  # 3. Separate Python Scheduler Daemon Service
+  python-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: instasched-scheduler
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://postgres:secure_postgres_pass@postgres-db:5432/instasched?schema=public
+      - ENCRYPTION_KEY=your_fernet_256bit_aes_encryption_key_here
+      - POLL_INTERVAL=30
+    depends_on:
+      - postgres-db
+
+volumes:
+  pgdata:

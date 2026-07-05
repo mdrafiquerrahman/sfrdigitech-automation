@@ -1,0 +1,99 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PostType {
+  photo
+  carousel
+  reel
+}
+
+enum PostStatus {
+  pending
+  publishing
+  completed
+  failed
+}
+
+enum LogLevel {
+  info
+  warning
+  error
+  success
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  name              String?
+  passwordHash      String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  instagramAccounts InstagramAccount[]
+  mediaAssets       MediaAsset[]
+  scheduledPosts    ScheduledPost[]
+}
+
+model InstagramAccount {
+  id             String          @id @default(uuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username       String          @unique
+  displayName    String
+  profilePicture String?
+  accessToken    String          // Securely encrypted official Instagram Graph API token
+  isConnected    Boolean         @default(true)
+  connectedAt    DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  scheduledPosts ScheduledPost[]
+}
+
+model MediaAsset {
+  id             String          @id @default(uuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  url            String          // Cloud Storage URL
+  type           String          // "image" or "video"
+  size           Int             // in bytes
+  createdAt      DateTime        @default(now())
+}
+
+model ScheduledPost {
+  id                 String           @id @default(uuid())
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccountId String
+  instagramAccount   InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  type               PostType
+  caption            String           @db.Text
+  mediaUrls          String[]         // List of ordered media URLs to post
+  scheduledFor       DateTime         // UTC schedule date/time
+  status             PostStatus       @default(pending)
+  postedAt           DateTime?
+  instagramId        String?          // Published Media Object ID from Instagram
+  error              String?          @db.Text
+  duplicatedFromId   String?
+  timezone           String           @default("UTC")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  publishLogs        PublishLog[]
+
+  @@index([status, scheduledFor])
+}
+
+model PublishLog {
+  id              String        @id @default(uuid())
+  scheduledPostId String
+  scheduledPost   ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  timestamp       DateTime      @default(now())
+  status          LogLevel
+  message         String        @db.Text
+  attemptCount    Int           @default(1)
+  responsePayload String?       @db.Text
+}

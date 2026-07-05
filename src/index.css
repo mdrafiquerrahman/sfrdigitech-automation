@@ -1,0 +1,152 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* ==========================================
+   WARM IVORY & CLAY EDITORIAL AESTHETIC MODE
+   ========================================== */
+
+:root {
+  --color-canvas: #faf8f4;         /* Soft warm ivory / linen */
+  --color-card: #ffffff;           /* Crisp elegant white card base */
+  --color-input: #f2efe7;          /* Soft sand beige for input backing */
+  --color-border: #e3ded5;         /* Delicate linen grey borders */
+  --color-text-primary: #1c1917;   /* Rich warm stone charcoal ink */
+  --color-text-secondary: #57534e; /* Gentle warm mud secondary ink */
+  --color-text-muted: #87827a;     /* Muted neutral clay */
+  --color-accent: #9e4b2e;         /* Premium artisanal terracotta */
+  --color-accent-light: #f5eae4;   /* Pale clay background */
+}
+
+body {
+  background-color: var(--color-canvas) !important;
+  color: var(--color-text-primary) !important;
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbar matching aesthetic sand colors */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-canvas);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Background Class Overrides */
+[class*="bg-[#09090b]"] {
+  background-color: var(--color-canvas) !important;
+}
+[class*="bg-[#121214]"] {
+  background-color: var(--color-card) !important;
+  box-shadow: 0 4px 20px -2px rgba(139, 131, 116, 0.05), 0 2px 8px -1px rgba(139, 131, 116, 0.03) !important;
+}
+[class*="bg-[#18181b]"], [class*="bg-[#1a1a1e]"], [class*="bg-zinc-900"], [class*="bg-[#0a0a0c]"] {
+  background-color: var(--color-input) !important;
+}
+[class*="bg-black"] {
+  background-color: var(--color-canvas) !important;
+}
+[class*="bg-zinc-800"] {
+  background-color: var(--color-input) !important;
+}
+
+/* Form inputs & interactive element focus */
+input, textarea, select {
+  background-color: var(--color-canvas) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 1px var(--color-accent) !important;
+}
+
+/* Background Gradients (SaaS Landing & Login) */
+[class*="from-zinc-900 to-black"] {
+  background: radial-gradient(circle at center, #fbfaf8 0%, #f1ebe1 100%) !important;
+}
+[class*="bg-[#E1306C]/10"] {
+  background-color: rgba(158, 75, 46, 0.06) !important;
+}
+[class*="bg-violet-600/10"] {
+  background-color: rgba(139, 92, 246, 0.04) !important;
+}
+
+/* Custom Accent & Button Colors (Terracotta Mode) */
+[class*="bg-[#E1306C]"] {
+  background-color: var(--color-accent) !important;
+  color: #ffffff !important;
+}
+[class*="text-[#E1306C]"] {
+  color: var(--color-accent) !important;
+}
+[class*="border-[#E1306C]"] {
+  border-color: var(--color-accent) !important;
+}
+[class*="bg-gradient-to-r from-[#E1306C] to-[#833AB4]"],
+[class*="bg-gradient-to-tr from-[#833AB4] via-[#E1306C] to-[#F77737]"],
+[class*="from-[#833AB4] via-[#E1306C] to-[#F77737]"] {
+  background: linear-gradient(135deg, #a27b5c 0%, var(--color-accent) 50%, #7c2d12 100%) !important;
+}
+
+/* Text Overrides to High Contrast charcoal-stone */
+[class*="text-zinc-100"], [class*="text-white"], [class*="text-zinc-200"], [class*="text-zinc-300"], [class*="text-zinc-50"] {
+  color: var(--color-text-primary) !important;
+}
+[class*="text-zinc-400"], [class*="text-zinc-500"], [class*="text-zinc-600"], [class*="text-zinc-450"] {
+  color: var(--color-text-secondary) !important;
+}
+[class*="text-zinc-650"], [class*="text-zinc-700"] {
+  color: var(--color-text-muted) !important;
+}
+
+/* Hover Adjustments */
+[class*="hover:bg-zinc-750"]:hover,
+[class*="hover:bg-zinc-700"]:hover,
+[class*="hover:bg-[#1a1a1e]"]:hover,
+[class*="hover:bg-[#121214]"]:hover {
+  background-color: #e9e5db !important;
+}
+
+/* Sidebar navigation item overrides */
+aside button[class*="text-zinc-400"]:hover {
+  background-color: var(--color-input) !important;
+  color: var(--color-text-primary) !important;
+}
+aside button[class*="bg-gradient-to-r"] {
+  background: linear-gradient(to right, var(--color-accent-light), transparent) !important;
+  color: var(--color-accent) !important;
+  border-left-color: var(--color-accent) !important;
+}
+
+/* Border Overrides */
+[class*="border-[#27272a]"], [class*="border-zinc-800"], [class*="border-zinc-700"], [class*="border-zinc-900"] {
+  border-color: var(--color-border) !important;
+}
+
+/* Typography pairing updates */
+h1, h2, h3, h4, h5, h6, [class*="font-display"] {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Override code panels and code texts to be extremely legible in sand style */
+pre, code, [class*="font-mono"] {
+  font-family: var(--font-mono) !important;
+  color: #3f3f46 !important;
+}

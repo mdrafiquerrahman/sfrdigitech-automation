@@ -1,0 +1,206 @@
+{
+  "users": [
+    {
+      "id": "usr_active",
+      "email": "creator@saas.com",
+      "name": "Alex Rivera",
+      "createdAt": "2026-07-05T14:41:21.070Z"
+    }
+  ],
+  "instagram_accounts": [
+    {
+      "id": "acc_travel_escapes",
+      "userId": "usr_active",
+      "username": "travel_escapes",
+      "displayName": "Travel Escapes Business",
+      "profilePicture": "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=150&auto=format&fit=crop&q=80",
+      "accessToken": "ig_oauth_enc_gcm_8f3e29d7c01b2a... [AES-256 ENCRYPTED]",
+      "isConnected": true,
+      "connectedAt": "2026-06-25T14:41:21.071Z"
+    },
+    {
+      "id": "acc_saas_growth",
+      "userId": "usr_active",
+      "username": "saas_growth",
+      "displayName": "SaaS Growth Accelerator",
+      "profilePicture": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=150&auto=format&fit=crop&q=80",
+      "accessToken": "ig_oauth_enc_gcm_a2d5619f510f82... [AES-256 ENCRYPTED]",
+      "isConnected": true,
+      "connectedAt": "2026-06-30T14:41:21.071Z"
+    }
+  ],
+  "media": [
+    {
+      "id": "med_workspace",
+      "userId": "usr_active",
+      "name": "Minimal Workspace.jpg",
+      "url": "https://images.unsplash.com/photo-1517842645767-c639042777db?w=800&auto=format&fit=crop&q=80",
+      "type": "image",
+      "size": "1.2 MB",
+      "createdAt": "2026-07-04T14:41:21.071Z"
+    },
+    {
+      "id": "med_coastline",
+      "userId": "usr_active",
+      "name": "Golden Coastline.jpg",
+      "url": "https://images.unsplash.com/photo-1472214222541-d510753a4707?w=800&auto=format&fit=crop&q=80",
+      "type": "image",
+      "size": "2.4 MB",
+      "createdAt": "2026-07-04T15:41:21.071Z"
+    },
+    {
+      "id": "med_skyline",
+      "userId": "usr_active",
+      "name": "Neon Skyline.jpg",
+      "url": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=80",
+      "type": "image",
+      "size": "1.8 MB",
+      "createdAt": "2026-07-04T16:41:21.071Z"
+    }
+  ],
+  "scheduled_posts": [
+    {
+      "id": "post_first",
+      "userId": "usr_active",
+      "instagramAccountId": "acc_travel_escapes",
+      "instagramAccountUsername": "travel_escapes",
+      "type": "photo",
+      "caption": "Chasing sunsets and new horizons. 🌅✨ What is your favorite sunset spot? Tell us in the comments! #SunsetLovers #AdventureAwaits #Wanderlust",
+      "mediaAssetIds": [
+        "med_coastline"
+      ],
+      "mediaUrls": [
+        "https://images.unsplash.com/photo-1472214222541-d510753a4707?w=800&auto=format&fit=crop&q=80"
+      ],
+      "scheduledFor": "2026-07-05T16:11:21.071Z",
+      "status": "pending",
+      "timezone": "America/New_York",
+      "createdAt": "2026-07-05T14:41:21.071Z"
+    },
+    {
+      "id": "post_carousel",
+      "userId": "usr_active",
+      "instagramAccountId": "acc_saas_growth",
+      "instagramAccountUsername": "saas_growth",
+      "type": "carousel",
+      "caption": "Three simple keys to unlocking focus and productivity in your daily routine: \n\n1. Protect your mornings (no phone for 1 hour)\n2. Time-block deep work (90-minute sprints)\n3. Take analog breaks (walk outside, stretch)\n\nSave this for your next workday! 💾 #ProductivityTips #FocusMindset #DailyRoutine #WorkSmart",
+      "mediaAssetIds": [
+        "med_workspace",
+        "med_skyline"
+      ],
+      "mediaUrls": [
+        "https://images.unsplash.com/photo-1517842645767-c639042777db?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=80"
+      ],
+      "scheduledFor": "2026-07-06T14:41:21.071Z",
+      "status": "pending",
+      "timezone": "UTC",
+      "createdAt": "2026-07-05T14:41:21.071Z"
+    }
+  ],
+  "publish_logs": [
+    {
+      "id": "log_init",
+      "scheduledPostId": "post_first",
+      "timestamp": "2026-07-05T14:41:21.071Z",
+      "status": "info",
+      "message": "InstaSched SaaS engine initialised. Ready to poll scheduled_posts queue.",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_ws1s7ysy8",
+      "scheduledPostId": "",
+      "timestamp": "2026-07-05T14:41:51.107Z",
+      "status": "success",
+      "message": "[Auto-Responder] Received message from @photo_chef: \"I am looking for pricing details. How much are the subscriptions?\". Matched rule: rule_price. Automatic reply sent.",
+      "attemptCount": 1
+    }
+  ],
+  "settings": {
+    "timezone": "UTC",
+    "isBotConnected": true,
+    "lastHeartbeat": "2026-07-05T14:41:21.071Z",
+    "appPublicUrl": "http://localhost:3000"
+  },
+  "currentUser": {
+    "id": "usr_active",
+    "email": "creator@saas.com",
+    "name": "Alex Rivera",
+    "createdAt": "2026-07-05T14:41:21.071Z"
+  },
+  "autoreply_rules": [
+    {
+      "id": "rule_price",
+      "triggerType": "keyword",
+      "keywords": [
+        "price",
+        "cost",
+        "pricing",
+        "how much",
+        "plans",
+        "fees"
+      ],
+      "replyType": "ai",
+      "staticReplyText": "",
+      "aiPromptInstruction": "Explain the subscription tiers of SFR DigiTech: Starter ($29/mo for 1 account), Pro ($49/mo for 3 accounts), and Enterprise ($99/mo for unlimited accounts). Keep the reply concise, friendly, and end with a call-to-action.",
+      "isActive": true,
+      "createdAt": "2026-07-05T14:41:21.071Z"
+    },
+    {
+      "id": "rule_help",
+      "triggerType": "keyword",
+      "keywords": [
+        "help",
+        "support",
+        "broken",
+        "error",
+        "fail"
+      ],
+      "replyType": "static",
+      "staticReplyText": "Hello! If you're experiencing any issues with your publishing automation, please visit our SaaS Settings panel or open our live support chat. Our technical team is on standby to assist you! 🛠️",
+      "aiPromptInstruction": "",
+      "isActive": true,
+      "createdAt": "2026-07-05T14:41:21.071Z"
+    },
+    {
+      "id": "rule_default",
+      "triggerType": "always",
+      "keywords": [],
+      "replyType": "ai",
+      "staticReplyText": "",
+      "aiPromptInstruction": "You are an automated, friendly Instagram AI representative for SFR DigiTech. Greet them warmly and answer any questions briefly and professionally.",
+      "isActive": true,
+      "createdAt": "2026-07-05T14:41:21.071Z"
+    }
+  ],
+  "autoreply_messages": [
+    {
+      "id": "msg_init_1",
+      "senderUsername": "jane_doe",
+      "messageText": "Hello! Do you have a trial or demo for SFR DigiTech?",
+      "timestamp": "2026-07-05T10:41:21.071Z",
+      "replySent": "Hello! While we don't have a free trial, our Starter plan is just $29/mo and lets you connect 1 account. You can upgrade or cancel anytime from your settings!",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default"
+    },
+    {
+      "id": "msg_init_2",
+      "senderUsername": "mark_growth",
+      "messageText": "how much is the pro plan?",
+      "timestamp": "2026-07-05T12:41:21.071Z",
+      "replySent": "The Pro plan is $49/mo and lets you connect up to 3 Instagram accounts, complete with custom calendar scheduling and advanced AI help!",
+      "replyType": "ai",
+      "matchedRuleId": "rule_price"
+    },
+    {
+      "id": "msg_b6q4y28w5",
+      "senderUsername": "photo_chef",
+      "messageText": "I am looking for pricing details. How much are the subscriptions?",
+      "timestamp": "2026-07-05T14:41:51.107Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_price",
+      "isComment": false
+    }
+  ]
+}

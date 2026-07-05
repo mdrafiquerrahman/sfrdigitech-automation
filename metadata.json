@@ -1,0 +1,6 @@
+{
+  "name": "SFR DigiTech Automation",
+  "description": "A premium AI-powered scheduling and auto-posting platform for Instagram that directly publishes your single photos, carousel slides, and reels on scheduled timing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
