@@ -2311,7 +2311,17 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
+if (process.env.VERCEL) {
+  // Start the background posting scheduler simulation in serverless environment
+  runAutomatedScheduler();
+
+  // On Vercel, synchronously register the static files middleware and routing fallback
+  const distPath = path.join(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+} else {
   startServer();
 }
 
