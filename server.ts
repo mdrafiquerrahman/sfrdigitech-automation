@@ -2344,18 +2344,6 @@ app.get("/api/debug-files", (req, res) => {
 if (process.env.VERCEL) {
   // Start the background posting scheduler simulation in serverless environment
   runAutomatedScheduler();
-
-  // On Vercel, synchronously register the static files middleware and routing fallback
-  const distPath = path.join(process.cwd(), "dist");
-  app.use(express.static(distPath));
-  app.get("*", (req, res) => {
-    const indexPath = path.join(distPath, "index.html");
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).send(`index.html not found at: ${indexPath}. Use /api/debug-files to diagnose files in deployment.`);
-    }
-  });
 } else {
   startServer();
 }
