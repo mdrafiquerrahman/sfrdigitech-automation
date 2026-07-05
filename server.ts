@@ -2311,6 +2311,36 @@ async function startServer() {
   });
 }
 
+// Add diagnostic route to help verify files are built and visible on Vercel
+app.get("/api/debug-files", (req, res) => {
+  try {
+    const cwd = process.cwd();
+    const filesInCwd = fs.existsSync(cwd) ? fs.readdirSync(cwd) : [];
+    
+    const distPath = path.join(cwd, "dist");
+    const distExists = fs.existsSync(distPath);
+    const filesInDist = distExists ? fs.readdirSync(distPath) : [];
+    
+    res.json({
+      success: true,
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: process.env.VERCEL,
+      },
+      cwd,
+      filesInCwd,
+      distPath,
+      distExists,
+      filesInDist,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+});
+
 if (process.env.VERCEL) {
   // Start the background posting scheduler simulation in serverless environment
   runAutomatedScheduler();
@@ -2319,7 +2349,12 @@ if (process.env.VERCEL) {
   const distPath = path.join(process.cwd(), "dist");
   app.use(express.static(distPath));
   app.get("*", (req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
+    const indexPath = path.join(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send(`index.html not found at: ${indexPath}. Use /api/debug-files to diagnose files in deployment.`);
+    }
   });
 } else {
   startServer();
