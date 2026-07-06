@@ -1788,7 +1788,7 @@ app.get("/api/webhook/instagram", async (req, res) => {
         const text = await devRes.text();
         return res.status(devRes.status).send(text);
       } else {
-        return res.sendStatus(devRes.status);
+        console.warn(`[Webhook Forwarding GET] Dev container returned non-OK status: ${devRes.status}. Processing locally as fallback.`);
       }
     } catch (err: any) {
       console.error("[Webhook Forwarding Error] Failed to forward GET verification:", err);
@@ -1961,8 +1961,12 @@ app.post("/api/webhook/instagram", async (req, res) => {
         },
         body: JSON.stringify(body)
       });
-      const text = await devRes.text();
-      return res.status(devRes.status).send(text);
+      if (devRes.ok) {
+        const text = await devRes.text();
+        return res.status(devRes.status).send(text);
+      } else {
+        console.warn(`[Webhook Forwarding] Dev container returned non-OK status: ${devRes.status}. Processing locally as fallback.`);
+      }
     } catch (err: any) {
       console.error("[Webhook Forwarding Error] Failed to forward POST webhook event:", err);
       // Fallback: continue local processing if forwarding fails
