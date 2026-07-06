@@ -23,34 +23,79 @@
   ],
   "media": [
     {
-      "id": "med_workspace",
+      "id": "med_ga23yqy64",
       "userId": "usr_active",
-      "name": "Minimal Workspace.jpg",
-      "url": "https://images.unsplash.com/photo-1517842645767-c639042777db?w=800&auto=format&fit=crop&q=80",
-      "type": "image",
-      "size": "1.2 MB",
-      "createdAt": "2026-07-04T14:41:21.071Z"
-    },
-    {
-      "id": "med_coastline",
-      "userId": "usr_active",
-      "name": "Golden Coastline.jpg",
-      "url": "https://images.unsplash.com/photo-1472214222541-d510753a4707?w=800&auto=format&fit=crop&q=80",
-      "type": "image",
-      "size": "2.4 MB",
-      "createdAt": "2026-07-04T15:41:21.071Z"
-    },
-    {
-      "id": "med_skyline",
-      "userId": "usr_active",
-      "name": "Neon Skyline.jpg",
-      "url": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=80",
-      "type": "image",
-      "size": "1.8 MB",
-      "createdAt": "2026-07-04T16:41:21.071Z"
+      "name": "brand_video.mp4",
+      "url": "/uploads/med_ga23yqy64_ve4clqytj.mp4",
+      "type": "video",
+      "size": "21.9 MB",
+      "createdAt": "2026-07-06T18:06:04.358Z"
     }
   ],
   "scheduled_posts": [
+    {
+      "id": "post_lxcs2f899",
+      "userId": "usr_active",
+      "instagramAccountId": "acc_kmkbgigva",
+      "instagramAccountUsername": "rafique_akhtar",
+      "type": "reel",
+      "caption": "hii",
+      "mediaAssetIds": [
+        "med_ga23yqy64"
+      ],
+      "mediaUrls": [
+        "/uploads/post_lxcs2f899_0_mb7s2wlt2.mp4"
+      ],
+      "scheduledFor": "2026-07-06T18:11:00.000Z",
+      "status": "completed",
+      "timezone": "Asia/Kolkata",
+      "createdAt": "2026-07-06T18:10:07.174Z",
+      "postedAt": "2026-07-06T18:12:32.524Z",
+      "instagramId": "18077538281307456"
+    },
+    {
+      "id": "post_swqxy70zs",
+      "userId": "usr_active",
+      "instagramAccountId": "acc_kmkbgigva",
+      "instagramAccountUsername": "rafique_akhtar",
+      "type": "carousel",
+      "caption": "hii",
+      "mediaAssetIds": [
+        "med_tu2d8bygl",
+        "med_ekm2i6neu"
+      ],
+      "mediaUrls": [
+        "/uploads/post_swqxy70zs_0_rwgf1x08a.jpg",
+        "/uploads/post_swqxy70zs_1_twzfof3jj.jpg"
+      ],
+      "scheduledFor": "2026-07-06T18:02:00.000Z",
+      "status": "completed",
+      "timezone": "Asia/Kolkata",
+      "createdAt": "2026-07-06T18:01:55.738Z",
+      "postedAt": "2026-07-06T18:02:37.684Z",
+      "instagramId": "18417866572198756"
+    },
+    {
+      "id": "post_974lv1ysw",
+      "userId": "usr_active",
+      "instagramAccountId": "acc_kmkbgigva",
+      "instagramAccountUsername": "rafique_akhtar",
+      "type": "carousel",
+      "caption": "hii",
+      "mediaAssetIds": [
+        "med_tu2d8bygl",
+        "med_ekm2i6neu"
+      ],
+      "mediaUrls": [
+        "/uploads/post_974lv1ysw_0_tgkn81ayx.jpg",
+        "/uploads/post_974lv1ysw_1_fg3vcxwv8.jpg"
+      ],
+      "scheduledFor": "2026-07-06T17:49:00.000Z",
+      "status": "failed",
+      "timezone": "Asia/Kolkata",
+      "createdAt": "2026-07-06T17:47:46.848Z",
+      "error": "Meta Publication Release Failed: Media ID is not available"
+    },
     {
       "id": "post_first",
       "userId": "usr_active",
@@ -94,163 +139,163 @@
   ],
   "publish_logs": [
     {
-      "id": "log_zvm9fd0tr",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:13:24.475Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @photo_chef: \"I am looking for pricing details. How much are the subscriptions?\". Matched rule: rule_price. Automatic reply sent.",
+      "id": "log_xk1hkmgbu",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:17.625Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 2/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_7qwan8cb4",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:13:54.474Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @art_collector: \"Hello there! Just checking out your automation app.\". Matched rule: rule_default. Automatic reply sent.",
+      "id": "log_9czg890yu",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:24.038Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 3/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_czwjbfe1i",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:14:24.477Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @fitness_coach: \"What plans do you have for fitness agencies?\". Matched rule: rule_price. Automatic reply sent.",
+      "id": "log_v4y8tc0qm",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:30.408Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 4/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_q49f1q69e",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:14:54.478Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @fitness_coach: \"What plans do you have for fitness agencies?\". Matched rule: rule_price. Automatic reply sent.",
+      "id": "log_5wwxys6j9",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:36.795Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 5/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_vrfho8iwk",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:15:54.482Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @travel_guru: \"Hey! Do you have any discount for the pro version?\". Matched rule: rule_default. Automatic reply sent.",
+      "id": "log_9mk8w335e",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:43.279Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 6/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_jhgdjguhe",
+      "id": "log_msxu72c71",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:49.631Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 7/20...",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_glzuf4b2r",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:11:56.176Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 8/20...",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_q3x2bcito",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:03.607Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 9/20...",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_ti0hpdpqu",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:10.138Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 10/20...",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_4rwou54rk",
       "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:16:54.488Z",
+      "timestamp": "2026-07-06T18:12:11.849Z",
       "status": "success",
       "message": "[Auto-Responder] Received message from @local_bakery: \"Is there an enterprise subscription available?\". Matched rule: rule_default. Automatic reply sent.",
       "attemptCount": 1
     },
     {
-      "id": "log_72aiq06zk",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:19:42.310Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @fashion_blogger: \"Hi! Can you help me? I keep seeing a connection glitch.\". Matched rule: rule_help. Automatic reply sent.",
+      "id": "log_yh5tjyc2m",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:16.496Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 11/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_fatf3say",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:20:12.311Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @organic_soap: \"Can you guys help me with setup?\". Matched rule: rule_help. Automatic reply sent.",
+      "id": "log_938lneysp",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:22.836Z",
+      "status": "info",
+      "message": "[Meta Engine] Polling status for Single Reel Container (18429908230192198) - Attempt 12/20...",
       "attemptCount": 1
     },
     {
-      "id": "log_8opfnec93",
+      "id": "log_mwv5qwzg7",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:24.252Z",
+      "status": "success",
+      "message": "[Meta Engine] Single Reel Container (18429908230192198) is ready! Status: FINISHED",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_w731o745p",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:25.303Z",
+      "status": "info",
+      "message": "[Meta Engine] Step 2: Requesting release handshake for creation_id 18429908230192198...",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_yxagkdgy8",
+      "scheduledPostId": "post_lxcs2f899",
+      "timestamp": "2026-07-06T18:12:32.524Z",
+      "status": "success",
+      "message": "🎉 [Meta Engine] Post successfully published to LIVE Instagram page! Feed ID: 18077538281307456",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_331dngrcq",
       "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:20:42.312Z",
+      "timestamp": "2026-07-06T18:12:41.850Z",
       "status": "success",
       "message": "[Auto-Responder] Received message from @local_bakery: \"Is there an enterprise subscription available?\". Matched rule: rule_default. Automatic reply sent.",
       "attemptCount": 1
     },
     {
-      "id": "log_tq7sakesd",
+      "id": "log_9q0ivc6ju",
       "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:21:12.314Z",
+      "timestamp": "2026-07-06T18:14:22.615Z",
       "status": "success",
-      "message": "[Auto-Responder] Received message from @art_collector: \"Hello there! Just checking out your automation app.\". Matched rule: rule_default. Automatic reply sent.",
+      "message": "[Meta Webhook] Successfully subscribed @rafique_akhtar to Meta webhooks! Meta will now deliver comments and direct messages. Response: {\"success\":true}",
       "attemptCount": 1
     },
     {
-      "id": "log_1sv3g6qkv",
+      "id": "log_s3nav15jz",
       "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:21:42.317Z",
+      "timestamp": "2026-07-06T18:15:41.864Z",
+      "status": "success",
+      "message": "[Auto-Responder] Received message from @local_bakery: \"Is there an enterprise subscription available?\". Matched rule: rule_default. Automatic reply sent.",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_n5gysd4is",
+      "scheduledPostId": "",
+      "timestamp": "2026-07-06T18:16:41.869Z",
+      "status": "success",
+      "message": "[Auto-Responder] Received message from @local_bakery: \"Is there an enterprise subscription available?\". Matched rule: rule_default. Automatic reply sent.",
+      "attemptCount": 1
+    },
+    {
+      "id": "log_nviztfsua",
+      "scheduledPostId": "",
+      "timestamp": "2026-07-06T18:17:57.742Z",
       "status": "success",
       "message": "[Auto-Responder] Received message from @fitness_coach: \"What plans do you have for fitness agencies?\". Matched rule: rule_price. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_bbrorp2ml",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:22:42.321Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @organic_soap: \"Can you guys help me with setup?\". Matched rule: rule_help. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_s039iafbl",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:23:12.325Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @art_collector: \"Hello there! Just checking out your automation app.\". Matched rule: rule_default. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_84ibbfrvr",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:26:17.484Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @fitness_coach: \"What plans do you have for fitness agencies?\". Matched rule: rule_price. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_oyciouvsu",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:26:47.486Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @photo_chef: \"I am looking for pricing details. How much are the subscriptions?\". Matched rule: rule_price. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_pjvcbuivo",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:27:54.750Z",
-      "status": "success",
-      "message": "[Meta Webhook Verification] GET request received. Mode: \"subscribe\", Token: \"sfr_digitech_verify_token\", Challenge: \"abc123challenge\". Expected Token: \"sfr_digitech_verify_token\". Status: VERIFIED",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_j29uij3pu",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:28:42.745Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @digital_nomad: \"How much is the cost of your starter plan?\". Matched rule: rule_price. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_6jboy7gkb",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:31:12.758Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @fashion_blogger: \"Hi! Can you help me? I keep seeing a connection glitch.\". Matched rule: rule_help. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_disvlzz1v",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:32:12.761Z",
-      "status": "success",
-      "message": "[Auto-Responder] Received message from @art_collector: \"Hello there! Just checking out your automation app.\". Matched rule: rule_default. Automatic reply sent.",
-      "attemptCount": 1
-    },
-    {
-      "id": "log_hk7qrtjap",
-      "scheduledPostId": "",
-      "timestamp": "2026-07-06T17:32:23.677Z",
-      "status": "success",
-      "message": "[Meta Webhook Verification] GET request received. Mode: \"subscribe\", Token: \"sfr_digitech_verify_token\", Challenge: \"test_challenge\". Expected Token: \"sfr_digitech_verify_token\". Status: VERIFIED",
       "attemptCount": 1
     }
   ],
@@ -326,153 +371,153 @@
   ],
   "autoreply_messages": [
     {
-      "id": "msg_2glimcyor",
-      "senderUsername": "fitness_coach",
-      "messageText": "What plans do you have for fitness agencies?",
-      "timestamp": "2026-07-06T17:14:54.478Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_price",
-      "isComment": false
-    },
-    {
-      "id": "msg_ikp873hfk",
-      "senderUsername": "travel_guru",
-      "messageText": "Hey! Do you have any discount for the pro version?",
-      "timestamp": "2026-07-06T17:15:54.482Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_default",
-      "isComment": false
-    },
-    {
-      "id": "msg_4x36sacgs",
-      "senderUsername": "local_bakery",
-      "messageText": "Is there an enterprise subscription available?",
-      "timestamp": "2026-07-06T17:16:54.488Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_default",
-      "isComment": false
-    },
-    {
-      "id": "msg_dwju2pmrn",
+      "id": "msg_iscb01nt2",
       "senderUsername": "fashion_blogger",
       "messageText": "Hi! Can you help me? I keep seeing a connection glitch.",
-      "timestamp": "2026-07-06T17:19:42.310Z",
+      "timestamp": "2026-07-06T18:05:09.606Z",
       "replySent": "Hello! If you're experiencing any issues with your publishing automation, please visit our SaaS Settings panel or open our live support chat. Our technical team is on standby to assist you! 🛠️",
       "replyType": "static",
       "matchedRuleId": "rule_help",
       "isComment": false
     },
     {
-      "id": "msg_97ra9jt3p",
-      "senderUsername": "organic_soap",
-      "messageText": "Can you guys help me with setup?",
-      "timestamp": "2026-07-06T17:20:12.311Z",
-      "replySent": "Hello! If you're experiencing any issues with your publishing automation, please visit our SaaS Settings panel or open our live support chat. Our technical team is on standby to assist you! 🛠️",
-      "replyType": "static",
-      "matchedRuleId": "rule_help",
-      "isComment": false
-    },
-    {
-      "id": "msg_9yrlcxhgc",
-      "senderUsername": "local_bakery",
-      "messageText": "Is there an enterprise subscription available?",
-      "timestamp": "2026-07-06T17:20:42.312Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_default",
-      "isComment": false
-    },
-    {
-      "id": "msg_0uei20enk",
-      "senderUsername": "art_collector",
-      "messageText": "Hello there! Just checking out your automation app.",
-      "timestamp": "2026-07-06T17:21:12.314Z",
-      "replySent": "Hello! Warm greetings from SFR DigiTech Automation! How can we assist you with your Instagram growth and auto-posting campaigns today? Let us know if you want to learn about our scheduling queue or AI auto-reply rules! 🌟",
-      "replyType": "ai",
-      "matchedRuleId": "rule_default",
-      "isComment": false
-    },
-    {
-      "id": "msg_oic51bens",
-      "senderUsername": "fitness_coach",
-      "messageText": "What plans do you have for fitness agencies?",
-      "timestamp": "2026-07-06T17:21:42.317Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_price",
-      "isComment": false
-    },
-    {
-      "id": "msg_565rosluf",
-      "senderUsername": "organic_soap",
-      "messageText": "Can you guys help me with setup?",
-      "timestamp": "2026-07-06T17:22:42.321Z",
-      "replySent": "Hello! If you're experiencing any issues with your publishing automation, please visit our SaaS Settings panel or open our live support chat. Our technical team is on standby to assist you! 🛠️",
-      "replyType": "static",
-      "matchedRuleId": "rule_help",
-      "isComment": false
-    },
-    {
-      "id": "msg_gr4otf56e",
-      "senderUsername": "art_collector",
-      "messageText": "Hello there! Just checking out your automation app.",
-      "timestamp": "2026-07-06T17:23:12.325Z",
-      "replySent": "Hello! Warm greetings from SFR DigiTech Automation! How can we assist you with your Instagram growth and auto-posting campaigns today? Let us know if you want to learn about our scheduling queue or AI auto-reply rules! 🌟",
-      "replyType": "ai",
-      "matchedRuleId": "rule_default",
-      "isComment": false
-    },
-    {
-      "id": "msg_223qakxam",
-      "senderUsername": "fitness_coach",
-      "messageText": "What plans do you have for fitness agencies?",
-      "timestamp": "2026-07-06T17:26:17.484Z",
-      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
-      "replyType": "ai",
-      "matchedRuleId": "rule_price",
-      "isComment": false
-    },
-    {
-      "id": "msg_9sskq8iju",
+      "id": "msg_h3pkogoub",
       "senderUsername": "photo_chef",
       "messageText": "I am looking for pricing details. How much are the subscriptions?",
-      "timestamp": "2026-07-06T17:26:47.486Z",
+      "timestamp": "2026-07-06T18:05:39.608Z",
       "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
       "replyType": "ai",
       "matchedRuleId": "rule_price",
       "isComment": false
     },
     {
-      "id": "msg_idtttbk4w",
+      "id": "msg_gv8qrpw1f",
       "senderUsername": "digital_nomad",
       "messageText": "How much is the cost of your starter plan?",
-      "timestamp": "2026-07-06T17:28:42.745Z",
+      "timestamp": "2026-07-06T18:06:09.641Z",
       "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
       "replyType": "ai",
       "matchedRuleId": "rule_price",
       "isComment": false
     },
     {
-      "id": "msg_q3jkhtl63",
+      "id": "msg_lm2h1ww3w",
+      "senderUsername": "art_collector",
+      "messageText": "Hello there! Just checking out your automation app.",
+      "timestamp": "2026-07-06T18:07:39.648Z",
+      "replySent": "Hello! Warm greetings from SFR DigiTech Automation! How can we assist you with your Instagram growth and auto-posting campaigns today? Let us know if you want to learn about our scheduling queue or AI auto-reply rules! 🌟",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_ohqyubqzs",
       "senderUsername": "fashion_blogger",
       "messageText": "Hi! Can you help me? I keep seeing a connection glitch.",
-      "timestamp": "2026-07-06T17:31:12.758Z",
+      "timestamp": "2026-07-06T18:08:09.650Z",
       "replySent": "Hello! If you're experiencing any issues with your publishing automation, please visit our SaaS Settings panel or open our live support chat. Our technical team is on standby to assist you! 🛠️",
       "replyType": "static",
       "matchedRuleId": "rule_help",
       "isComment": false
     },
     {
-      "id": "msg_5d1frzmh1",
+      "id": "msg_nyuc93r1p",
+      "senderUsername": "fitness_coach",
+      "messageText": "What plans do you have for fitness agencies?",
+      "timestamp": "2026-07-06T18:08:39.653Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_price",
+      "isComment": false
+    },
+    {
+      "id": "msg_7rswk5enp",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:09:09.656Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_ea7vr43mt",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:10:10.474Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_2dagxullb",
       "senderUsername": "art_collector",
       "messageText": "Hello there! Just checking out your automation app.",
-      "timestamp": "2026-07-06T17:32:12.761Z",
+      "timestamp": "2026-07-06T18:10:40.477Z",
       "replySent": "Hello! Warm greetings from SFR DigiTech Automation! How can we assist you with your Instagram growth and auto-posting campaigns today? Let us know if you want to learn about our scheduling queue or AI auto-reply rules! 🌟",
       "replyType": "ai",
       "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_rq1vw8dk8",
+      "senderUsername": "fitness_coach",
+      "messageText": "What plans do you have for fitness agencies?",
+      "timestamp": "2026-07-06T18:11:10.507Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_price",
+      "isComment": false
+    },
+    {
+      "id": "msg_9lk00w0ba",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:12:11.849Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_05c95541i",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:12:41.850Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_x1damuaz7",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:15:41.864Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_hgwo0oqjl",
+      "senderUsername": "local_bakery",
+      "messageText": "Is there an enterprise subscription available?",
+      "timestamp": "2026-07-06T18:16:41.869Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_default",
+      "isComment": false
+    },
+    {
+      "id": "msg_6jzopz5dg",
+      "senderUsername": "fitness_coach",
+      "messageText": "What plans do you have for fitness agencies?",
+      "timestamp": "2026-07-06T18:17:57.742Z",
+      "replySent": "Hi! Thanks for your interest in SFR DigiTech! Here is a summary of our subscription tiers:\n\n• Starter Plan: $29/month (1 connected Instagram profile, essential analytics)\n• Pro Plan: $49/month (3 connected Instagram profiles, advanced AI auto-reply brain, direct media upload)\n• Enterprise Plan: $99/month (Unlimited accounts, white-labeled reporting, dedicated server bandwidth)\n\nYou can upgrade or manage your plan directly in your Dashboard Settings! Let us know if you need any assistance getting set up! 🚀",
+      "replyType": "ai",
+      "matchedRuleId": "rule_price",
       "isComment": false
     }
   ]

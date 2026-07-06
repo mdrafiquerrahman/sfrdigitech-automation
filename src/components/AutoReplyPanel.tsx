@@ -18,20 +18,27 @@ import {
   Copy,
   Check,
   ExternalLink,
-  ShieldAlert
+  ShieldAlert,
+  Users,
+  Mail,
+  Phone,
+  Layers,
+  Zap
 } from "lucide-react";
-import { AutoReplyRule, InstagramMessage, InstagramAccount } from "../types";
+import { AutoReplyRule, InstagramMessage, InstagramAccount, CapturedLead } from "../types";
 
 interface AutoReplyPanelProps {
   accounts: InstagramAccount[];
 }
 
 export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"rules" | "simulator" | "integration">("rules");
+  const [activeSubTab, setActiveSubTab] = useState<"rules" | "simulator" | "leads" | "integration">("rules");
   const [rules, setRules] = useState<AutoReplyRule[]>([]);
   const [messages, setMessages] = useState<InstagramMessage[]>([]);
+  const [leads, setLeads] = useState<CapturedLead[]>([]);
   const [loading, setLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
+  const [loadingLeads, setLoadingLeads] = useState(false);
   
   // Real integration metadata
   const [appPublicUrl, setAppPublicUrl] = useState("");
@@ -44,6 +51,29 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
   const [isCustomWebhookEnabled, setIsCustomWebhookEnabled] = useState(false);
   const [isSavingCustomWebhook, setIsSavingCustomWebhook] = useState(false);
   const [customWebhookInput, setCustomWebhookInput] = useState("");
+
+  // ManyChat Branding States
+  const [manychatBranding, setManychatBranding] = useState(true);
+  const [isSavingBranding, setIsSavingBranding] = useState(false);
+
+  const handleToggleBranding = async (enabled: boolean) => {
+    setIsSavingBranding(true);
+    try {
+      const res = await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manychatBranding: enabled })
+      });
+      if (res.ok) {
+        const settings = await res.json();
+        setManychatBranding(!!settings.manychatBranding);
+      }
+    } catch (err) {
+      console.error("Failed to save branding settings:", err);
+    } finally {
+      setIsSavingBranding(false);
+    }
+  };
 
   const handleRegisterWebhook = async (accountId: string) => {
     setSubscribing(true);
@@ -74,6 +104,12 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
   const [ruleReplyType, setRuleReplyType] = useState<"static" | "ai">("static");
   const [ruleStaticText, setRuleStaticText] = useState("");
   const [ruleAiInstruction, setRuleAiInstruction] = useState("");
+
+  // ManyChat Rule Enhancements
+  const [ruleDelaySeconds, setRuleDelaySeconds] = useState<number>(0);
+  const [ruleButtonsInput, setRuleButtonsInput] = useState("");
+  const [ruleCaptureLeadField, setRuleCaptureLeadField] = useState<"none" | "email" | "phone">("none");
+  const [ruleCaptureSuccessText, setRuleCaptureSuccessText] = useState("");
 
   // Simulator Form State
   const [simSender, setSimSender] = useState("insta_follower");
@@ -107,9 +143,10 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [rulesRes, settingsRes] = await Promise.all([
+      const [rulesRes, settingsRes, leadsRes] = await Promise.all([
         fetch("/api/autoreply/rules"),
-        fetch("/api/bot/settings")
+        fetch("/api/bot/settings"),
+        fetch("/api/autoreply/leads").catch(() => null)
       ]);
       if (rulesRes.ok && isJson(rulesRes)) setRules(await rulesRes.json());
       if (settingsRes.ok && isJson(settingsRes)) {
@@ -119,8 +156,14 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         setCustomWebhookUrl(cUrl);
         setCustomWebhookInput(cUrl);
         setIsCustomWebhookEnabled(!!cUrl);
+        if (settings.manychatBranding !== undefined) {
+          setManychatBranding(!!settings.manychatBranding);
+        }
       } else {
         setAppPublicUrl(window.location.origin);
+      }
+      if (leadsRes && leadsRes.ok && isJson(leadsRes)) {
+        setLeads(await leadsRes.json());
       }
       await fetchMessages();
     } catch (err) {
@@ -128,6 +171,45 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
       setAppPublicUrl(window.location.origin);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLeads = async () => {
+    setLoadingLeads(true);
+    try {
+      const res = await fetch("/api/autoreply/leads");
+      if (res.ok && isJson(res)) {
+        const data = await res.json();
+        setLeads(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch leads:", err);
+    } finally {
+      setLoadingLeads(false);
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    if (!confirm("Are you sure you want to remove this lead from CRM?")) return;
+    try {
+      const res = await fetch(`/api/autoreply/leads/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setLeads(leads.filter(l => l.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete lead:", err);
+    }
+  };
+
+  const handleClearLeads = async () => {
+    if (!confirm("Are you sure you want to wipe all captured leads? This is irreversible!")) return;
+    try {
+      const res = await fetch("/api/autoreply/clear-leads", { method: "POST" });
+      if (res.ok) {
+        setLeads([]);
+      }
+    } catch (err) {
+      console.error("Failed to clear CRM leads:", err);
     }
   };
 
@@ -186,6 +268,14 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
     if (ruleReplyType === "static" && !ruleStaticText.trim()) return;
     if (ruleReplyType === "ai" && !ruleAiInstruction.trim()) return;
 
+    // Parse comma-separated buttons into list of triggers
+    const buttonsParsed = ruleButtonsInput.trim()
+      ? ruleButtonsInput.split(",").map(b => {
+          const label = b.trim();
+          return { label, triggerKeyword: label.toLowerCase() };
+        }).filter(item => item.label.length > 0)
+      : undefined;
+
     try {
       const res = await fetch("/api/autoreply/rules", {
         method: "POST",
@@ -198,7 +288,11 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
           replyType: ruleReplyType,
           staticReplyText: ruleReplyType === "static" ? ruleStaticText : "",
           aiPromptInstruction: ruleReplyType === "ai" ? ruleAiInstruction : "",
-          isActive: true
+          isActive: true,
+          delaySeconds: ruleDelaySeconds > 0 ? Number(ruleDelaySeconds) : undefined,
+          buttons: buttonsParsed,
+          captureLeadField: ruleCaptureLeadField,
+          captureSuccessText: ruleCaptureLeadField !== "none" ? ruleCaptureSuccessText : ""
         })
       });
 
@@ -209,6 +303,10 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         setRuleKeywords("");
         setRuleStaticText("");
         setRuleAiInstruction("");
+        setRuleDelaySeconds(0);
+        setRuleButtonsInput("");
+        setRuleCaptureLeadField("none");
+        setRuleCaptureSuccessText("");
         setShowAddForm(false);
       }
     } catch (err) {
@@ -229,11 +327,11 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
     }
   };
 
-  // Simulate Message
-  const handleSimulate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!simMessage.trim() || !simSender.trim()) return;
+  const [isBotTyping, setIsBotTyping] = useState(false);
 
+  // Trigger button click simulation
+  const handleTriggerButtonSimulate = async (label: string) => {
+    if (simulating || isBotTyping) return;
     setSimulating(true);
     try {
       const res = await fetch("/api/autoreply/simulate", {
@@ -241,15 +339,97 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           senderUsername: simSender.replace("@", "").trim(),
-          messageText: simMessage,
+          messageText: label,
           isComment: false
         })
       });
 
       if (res.ok) {
         const newMessage = await res.json();
-        setMessages(prev => [...prev, newMessage]);
+        
+        // Find if rule has delay
+        const matchedRule = rules.find(r => r.id === newMessage.matchedRuleId);
+        const delaySec = matchedRule?.delaySeconds || 0;
+
+        if (delaySec > 0) {
+          // 1. Append user's message only first
+          const userOnlyMsg: InstagramMessage = {
+            id: "temp_" + Math.random().toString(36).substring(2, 11),
+            senderUsername: simSender.replace("@", "").trim(),
+            messageText: label,
+            timestamp: new Date().toISOString()
+          };
+          setMessages(prev => [...prev, userOnlyMsg]);
+          
+          // 2. Trigger typing delay
+          setIsBotTyping(true);
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          setIsBotTyping(false);
+
+          // 3. Replace temp with final
+          setMessages(prev => prev.filter(m => m.id !== userOnlyMsg.id).concat(newMessage));
+        } else {
+          setMessages(prev => [...prev, newMessage]);
+        }
+        
         setSimMessage("");
+        fetchLeads(); // Update CRM
+      }
+    } catch (err) {
+      console.error("Failed to simulate button:", err);
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  // Simulate Message
+  const handleSimulate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!simMessage.trim() || !simSender.trim() || simulating || isBotTyping) return;
+
+    const messageText = simMessage;
+    setSimulating(true);
+    try {
+      const res = await fetch("/api/autoreply/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderUsername: simSender.replace("@", "").trim(),
+          messageText: messageText,
+          isComment: false
+        })
+      });
+
+      if (res.ok) {
+        const newMessage = await res.json();
+        
+        // Find if rule has delay
+        const matchedRule = rules.find(r => r.id === newMessage.matchedRuleId);
+        const delaySec = matchedRule?.delaySeconds || 0;
+
+        if (delaySec > 0) {
+          // 1. Append user's message only first
+          const userOnlyMsg: InstagramMessage = {
+            id: "temp_" + Math.random().toString(36).substring(2, 11),
+            senderUsername: simSender.replace("@", "").trim(),
+            messageText: messageText,
+            timestamp: new Date().toISOString()
+          };
+          setMessages(prev => [...prev, userOnlyMsg]);
+          
+          // 2. Trigger typing delay
+          setIsBotTyping(true);
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          setIsBotTyping(false);
+
+          // 3. Replace temp with final
+          setMessages(prev => prev.filter(m => m.id !== userOnlyMsg.id).concat(newMessage));
+        } else {
+          setMessages(prev => [...prev, newMessage]);
+        }
+
+        setSimMessage("");
+        fetchLeads(); // Update CRM
       }
     } catch (err) {
       console.error("Failed to simulate message:", err);
@@ -304,6 +484,16 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
           }`}
         >
           Interactive DM Simulator & Sandbox
+        </button>
+        <button
+          onClick={() => setActiveSubTab("leads")}
+          className={`px-4 py-2.5 font-mono text-[10px] tracking-widest uppercase font-bold border-b-2 transition ${
+            activeSubTab === "leads"
+              ? "border-[#9e4b2e] text-[#9e4b2e]"
+              : "border-transparent text-stone-400 hover:text-stone-700"
+          }`}
+        >
+          ManyChat CRM Leads ({leads.length})
         </button>
         <button
           onClick={() => setActiveSubTab("integration")}
@@ -458,6 +648,91 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                   </div>
                 )}
 
+                {/* ManyChat Delay & Interactive Buttons */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-[#f2efe7] pt-4">
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-500 mb-1 flex items-center">
+                      <Clock size={11} className="mr-1 text-stone-400" />
+                      Typing Delay (Seconds)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      value={ruleDelaySeconds}
+                      onChange={(e) => setRuleDelaySeconds(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-[#e3ded5] rounded-xl text-xs font-mono"
+                    />
+                    <span className="text-[9px] text-stone-400 mt-0.5 block">
+                      Delay bot response in sandbox to simulate human-like typing (0-10s).
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-500 mb-1 flex items-center">
+                      <Layers size={11} className="mr-1 text-stone-400" />
+                      Quick Reply Buttons (Comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Get Pricing, Book Demo, Contact"
+                      value={ruleButtonsInput}
+                      onChange={(e) => setRuleButtonsInput(e.target.value)}
+                      className="w-full px-3 py-2 border border-[#e3ded5] rounded-xl text-xs font-sans placeholder:text-stone-300"
+                    />
+                    <span className="text-[9px] text-stone-400 mt-0.5 block">
+                      Pills that followers can click. Clicking triggers keyword matching.
+                    </span>
+                  </div>
+                </div>
+
+                {/* ManyChat CRM Lead Capture */}
+                <div className="border-t border-[#f2efe7] pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#9e4b2e] flex items-center">
+                      <Zap size={11} className="mr-1 text-[#9e4b2e]" />
+                      ManyChat Lead Capture CRM Flow
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-500 mb-1.5">
+                        Input Field to Capture
+                      </label>
+                      <select
+                        value={ruleCaptureLeadField}
+                        onChange={(e: any) => setRuleCaptureLeadField(e.target.value)}
+                        className="w-full px-3 py-2 border border-[#e3ded5] rounded-xl text-xs font-sans"
+                      >
+                        <option value="none">No Capture (Standard Response)</option>
+                        <option value="email">Email Address</option>
+                        <option value="phone">Phone Number</option>
+                      </select>
+                      <span className="text-[9px] text-stone-400 mt-0.5 block">
+                        Check if the response is a valid contact; automatically record in leads CRM.
+                      </span>
+                    </div>
+
+                    {ruleCaptureLeadField !== "none" && (
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-stone-500 mb-1">
+                          Success Confirmation Text
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Awesome, got your email! We sent you the files. 🚀"
+                          value={ruleCaptureSuccessText}
+                          onChange={(e) => setRuleCaptureSuccessText(e.target.value)}
+                          className="w-full px-3 py-2 border border-[#e3ded5] rounded-xl text-xs font-sans placeholder:text-stone-300"
+                        />
+                        <span className="text-[9px] text-stone-400 mt-0.5 block">
+                          The bot will reply with this once their info is securely saved to CRM.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex justify-end space-x-2 pt-2">
                   <button
                     type="button"
@@ -546,6 +821,32 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                             "{rule.replyType === "ai" ? rule.aiPromptInstruction : rule.staticReplyText}"
                           </p>
                         </div>
+
+                        {/* ManyChat Flow Enhancements badges */}
+                        {(rule.delaySeconds || (rule.buttons && rule.buttons.length > 0) || (rule.captureLeadField && rule.captureLeadField !== "none")) && (
+                          <div className="mt-3 flex flex-wrap gap-2 items-center">
+                            {rule.delaySeconds && (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-mono">
+                                <Clock size={10} />
+                                <span>{rule.delaySeconds}s Delay</span>
+                              </span>
+                            )}
+                            
+                            {rule.buttons && rule.buttons.length > 0 && (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-100 rounded text-[9px] font-mono">
+                                <Layers size={10} />
+                                <span>{rule.buttons.length} Buttons</span>
+                              </span>
+                            )}
+
+                            {rule.captureLeadField && rule.captureLeadField !== "none" && (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-mono font-bold">
+                                <Zap size={10} className="animate-pulse" />
+                                <span>Capture {rule.captureLeadField.toUpperCase()}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Action controllers */}
@@ -635,6 +936,28 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                     placeholder="travel_enthusiast"
                   />
                 </div>
+              </div>
+
+              {/* ManyChat Watermark Signature Toggle */}
+              <div className="p-3 bg-stone-50 rounded-xl border border-[#e3ded5] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-600 flex items-center">
+                    <Zap size={11} className="mr-1 text-[#9e4b2e]" />
+                    ManyChat Branding Signature
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manychatBranding}
+                      onChange={(e) => handleToggleBranding(e.target.checked)}
+                      disabled={isSavingBranding}
+                      className="rounded border-[#e3ded5] text-[#9e4b2e] focus:ring-[#9e4b2e] w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
+                    />
+                  </label>
+                </div>
+                <p className="text-[9px] text-stone-400 font-sans leading-relaxed">
+                  Sends an additional <strong>"Automation powered by @Manychat 🐙"</strong> message bubble alongside your automated replies, matching the official ManyChat free tier experience.
+                </p>
               </div>
 
               <div>
@@ -776,6 +1099,18 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                               ig
                             </div>
                           </div>
+
+                          {/* ManyChat branding signature watermark bubble */}
+                          {msg.includeBranding && (
+                            <div className="flex items-end justify-end space-x-2 max-w-[85%] self-end mt-1 animate-fadeIn">
+                              <div className="bg-[#f5eae4] border border-[#f0ded5] text-[#9e4b2e] px-3 py-1.5 rounded-xl rounded-tr-none text-[10px] font-sans shadow-xs flex items-center space-x-1.5">
+                                <span className="font-mono text-[9px] uppercase tracking-wider font-bold">ManyChat</span>
+                                <span className="text-orange-300">|</span>
+                                <span className="font-medium">Automation powered by @Manychat 🐙</span>
+                              </div>
+                              <div className="w-6 h-6 opacity-0" />
+                            </div>
+                          )}
                           {/* Subtext info matched rule */}
                           <div className="text-[8px] font-mono text-stone-400 mr-8 flex items-center space-x-1">
                             <Clock size={8} />
@@ -787,12 +1122,188 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                               </>
                             )}
                           </div>
+
+                          {/* ManyChat Interactive Quick Reply Buttons */}
+                          {msg.buttons && msg.buttons.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 justify-end mr-8 mt-1.5 mb-2">
+                              {msg.buttons.map((btn, bidx) => (
+                                <button
+                                  key={bidx}
+                                  type="button"
+                                  onClick={() => handleTriggerButtonSimulate(btn.label)}
+                                  className="px-3 py-1.5 bg-white border border-[#e3ded5] hover:border-[#9e4b2e] text-[#9e4b2e] hover:bg-orange-50 text-[10px] font-mono rounded-full transition shadow-xs cursor-pointer flex items-center space-x-1 font-bold"
+                                >
+                                  <Zap size={8} />
+                                  <span>{btn.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   ))
                 )}
+
+                {/* Animated typing bubble */}
+                {isBotTyping && (
+                  <div className="flex items-end justify-end space-x-2 max-w-[85%] self-end mt-2 animate-pulse">
+                    <div className="bg-[#9e4b2e] text-white px-4 py-2.5 rounded-2xl rounded-br-none text-xs leading-relaxed font-mono shadow-sm flex items-center space-x-1.5">
+                      <span className="w-1.5 h-1.5 bg-orange-200 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 bg-orange-200 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 bg-orange-200 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                      <span className="ml-1 text-[9px] uppercase tracking-widest text-orange-200 font-bold">Bot is typing...</span>
+                    </div>
+                    <div className="w-6 h-6 rounded-full bg-[#9e4b2e] flex items-center justify-center text-[9px] font-bold text-white shadow-sm font-mono animate-spin">
+                      ig
+                    </div>
+                  </div>
+                )}
               </div>
+            </div>
+          </div>
+        </div>
+      ) : activeSubTab === "leads" ? (
+        /* ManyChat Captured Leads CRM Tab */
+        <div className="space-y-6 animate-fadeIn">
+          {/* CRM Header */}
+          <div className="bg-[#FAF8F5] border border-[#e3ded5] p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-display font-medium text-[#9e4b2e] flex items-center space-x-2">
+                <Users size={18} />
+                <span>ManyChat Interactive Lead Capture CRM</span>
+              </h3>
+              <p className="text-xs text-stone-600 font-sans mt-1 leading-relaxed">
+                Review and manage followers who triggered lead-capture rules and submitted their contact information (email or phone numbers) interactively.
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-2 shrink-0">
+              <button
+                onClick={fetchLeads}
+                disabled={loadingLeads}
+                className="px-3 py-1.5 border border-[#e3ded5] text-stone-600 hover:bg-[#faf8f4] disabled:opacity-50 rounded-lg text-[10px] font-mono uppercase font-bold flex items-center space-x-1"
+              >
+                <RefreshCw size={11} className={loadingLeads ? "animate-spin" : ""} />
+                <span>Refresh CRM</span>
+              </button>
+              
+              <button
+                onClick={handleClearLeads}
+                disabled={leads.length === 0}
+                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-100 disabled:opacity-50 rounded-lg text-[10px] font-mono uppercase font-bold flex items-center space-x-1"
+              >
+                <Trash2 size={11} />
+                <span>Clear Leads</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Leads Grid/Table */}
+          {loadingLeads ? (
+            <div className="py-20 text-center bg-white border border-[#e3ded5] rounded-2xl">
+              <RefreshCw className="animate-spin text-stone-400 mx-auto mb-2" size={24} />
+              <span className="text-xs text-stone-500 font-mono">Loading captured leads database...</span>
+            </div>
+          ) : leads.length === 0 ? (
+            <div className="bg-white border border-dashed border-[#e3ded5] py-16 text-center rounded-2xl space-y-3">
+              <div className="w-12 h-12 bg-stone-50 rounded-full flex items-center justify-center mx-auto border border-[#e3ded5]">
+                <Users className="text-stone-300" size={20} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-stone-600">No Captured Leads</h4>
+                <p className="text-[11px] text-stone-400 max-w-sm mx-auto font-sans leading-relaxed">
+                  No followers have entered a lead capture flow yet. Go to the <strong>Rules Configuration</strong> tab, create a rule with "Email" or "Phone" capture enabled, and test it in the <strong>DM Simulator</strong>!
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white border border-[#e3ded5] rounded-2xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#faf8f4] border-b border-[#e3ded5] text-[10px] font-mono uppercase tracking-wider text-stone-500 font-bold">
+                      <th className="py-3 px-4">Instagram Handle</th>
+                      <th className="py-3 px-4">Captured Email</th>
+                      <th className="py-3 px-4">Captured Phone</th>
+                      <th className="py-3 px-4">Last Activity</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#f2efe7] text-xs">
+                    {leads.map((lead) => (
+                      <tr key={lead.id} className="hover:bg-stone-50/50 transition">
+                        <td className="py-3.5 px-4 font-mono font-bold text-[#9e4b2e]">
+                          @{lead.username}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {lead.email ? (
+                            <div className="flex items-center space-x-1.5">
+                              <Mail size={12} className="text-stone-400 shrink-0" />
+                              <span className="font-mono text-[11px] text-stone-800">{lead.email}</span>
+                            </div>
+                          ) : (
+                            <span className="text-stone-300 italic">not captured</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {lead.phone ? (
+                            <div className="flex items-center space-x-1.5">
+                              <Phone size={12} className="text-stone-400 shrink-0" />
+                              <span className="font-mono text-[11px] text-stone-800">{lead.phone}</span>
+                            </div>
+                          ) : (
+                            <span className="text-stone-300 italic">not captured</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-stone-500 text-[11px] font-mono">
+                          {new Date(lead.lastInteracted).toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-mono uppercase tracking-wider font-bold">
+                            {lead.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => handleDeleteLead(lead.id)}
+                            className="p-1 text-stone-400 hover:text-red-600 transition"
+                            title="Remove Lead"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Conceptual Flow Block */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-stone-50 border border-[#e3ded5] p-5 rounded-2xl space-y-2">
+              <div className="w-8 h-8 rounded-full bg-[#f5eae4] text-[#9e4b2e] flex items-center justify-center font-mono font-bold text-xs">1</div>
+              <h4 className="text-xs font-mono font-bold uppercase text-stone-700">Trigger Rule Matching</h4>
+              <p className="text-[11px] text-stone-500 leading-relaxed">
+                When a user sends a DM or triggers a keyword, the bot matches the corresponding rule. If that rule is set to capture a lead, the bot asks for their contact details.
+              </p>
+            </div>
+            <div className="bg-stone-50 border border-[#e3ded5] p-5 rounded-2xl space-y-2">
+              <div className="w-8 h-8 rounded-full bg-[#f5eae4] text-[#9e4b2e] flex items-center justify-center font-mono font-bold text-xs">2</div>
+              <h4 className="text-xs font-mono font-bold uppercase text-stone-700">Automatic Extraction</h4>
+              <p className="text-[11px] text-stone-500 leading-relaxed">
+                Our backend automatically parses the follower's reply using email and phone regex lookups to extract real, validated contact records securely.
+              </p>
+            </div>
+            <div className="bg-stone-50 border border-[#e3ded5] p-5 rounded-2xl space-y-2">
+              <div className="w-8 h-8 rounded-full bg-[#f5eae4] text-[#9e4b2e] flex items-center justify-center font-mono font-bold text-xs">3</div>
+              <h4 className="text-xs font-mono font-bold uppercase text-stone-700">CRM Enrollment</h4>
+              <p className="text-[11px] text-stone-500 leading-relaxed">
+                The captured record is persisted in our database, appearing live in this CRM dashboard for immediate sales outreach or spreadsheet export.
+              </p>
             </div>
           </div>
         </div>

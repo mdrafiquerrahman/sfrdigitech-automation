@@ -10,8 +10,62 @@ const _dirname = typeof import.meta !== "undefined" && import.meta.url ? path.di
 
 dotenv.config();
 
+// Ensure local uploads directory exists
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const app = express();
 const PORT = 3000;
+
+// Serve uploaded files statically under /uploads
+app.use("/uploads", express.static(uploadsDir));
+
+// Helper to save base64 data to local file in uploads folder
+function saveBase64File(base64Str: string, suggestedName: string): string {
+  if (!base64Str || !base64Str.startsWith("data:")) {
+    return base64Str; // Already a URL or normal path
+  }
+
+  try {
+    const commaIndex = base64Str.indexOf(",");
+    if (commaIndex === -1) {
+      return base64Str;
+    }
+
+    const header = base64Str.substring(0, commaIndex);
+    const base64Data = base64Str.substring(commaIndex + 1);
+
+    const semiIndex = header.indexOf(";");
+    if (semiIndex === -1) {
+      return base64Str;
+    }
+
+    const mimeType = header.substring(5, semiIndex); // skip "data:"
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Determine extension
+    let ext = "bin";
+    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
+    else if (mimeType.includes("png")) ext = "png";
+    else if (mimeType.includes("gif")) ext = "gif";
+    else if (mimeType.includes("mp4")) ext = "mp4";
+    else if (mimeType.includes("quicktime")) ext = "mov";
+    else if (mimeType.includes("svg")) ext = "svg";
+    else if (mimeType.includes("webp")) ext = "webp";
+
+    const fileName = `${suggestedName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${Math.random().toString(36).substring(2, 11)}.${ext}`;
+    const filePath = path.join(uploadsDir, fileName);
+
+    fs.writeFileSync(filePath, buffer);
+    console.log(`[File System] Saved base64 file to ${filePath}`);
+    return `/uploads/${fileName}`;
+  } catch (err) {
+    console.error("[File System] Error saving base64 file:", err);
+    return base64Str;
+  }
+}
 
 // Increase body size limits for media uploads
 app.use(express.json({ limit: "50mb" }));
@@ -110,6 +164,11 @@ interface AutoReplyRule {
   aiPromptInstruction: string;
   isActive: boolean;
   createdAt: string;
+  // ManyChat Enhancements
+  delaySeconds?: number;
+  buttons?: { label: string; triggerKeyword: string }[];
+  captureLeadField?: "email" | "phone" | "none";
+  captureSuccessText?: string;
 }
 
 interface InstagramMessage {
@@ -121,6 +180,20 @@ interface InstagramMessage {
   replyType?: "static" | "ai" | "none";
   matchedRuleId?: string;
   isComment?: boolean;
+  // ManyChat interactive payload
+  buttons?: { label: string; triggerKeyword: string }[];
+  isTyping?: boolean;
+  includeBranding?: boolean;
+}
+
+interface CapturedLead {
+  id: string;
+  username: string;
+  email?: string;
+  phone?: string;
+  lastInteracted: string;
+  status: "new" | "qualified" | "contacted";
+  notes?: string;
 }
 
 interface DB {
@@ -135,10 +208,12 @@ interface DB {
     lastHeartbeat: string | null;
     appPublicUrl?: string;
     customWebhookUrl?: string;
+    manychatBranding?: boolean;
   };
   currentUser: User | null;
   autoreply_rules?: AutoReplyRule[];
   autoreply_messages?: InstagramMessage[];
+  autoreply_leads?: CapturedLead[];
 }
 
 // Sample mock data matching the exact schema
@@ -250,7 +325,8 @@ const DEFAULT_DB: DB = {
     isBotConnected: true,
     lastHeartbeat: new Date().toISOString(),
     appPublicUrl: "",
-    customWebhookUrl: ""
+    customWebhookUrl: "",
+    manychatBranding: true
   },
   currentUser: {
     id: "usr_active",
@@ -380,6 +456,41 @@ function readDB(): DB {
       } else {
         const data = fs.readFileSync(DB_FILE, "utf8");
         parsed = JSON.parse(data);
+
+        // Migrate base64 to local physical files
+        let hasMigrated = false;
+        if (parsed && Array.isArray(parsed.media)) {
+          parsed.media = parsed.media.map((m: any) => {
+            if (m && m.url && m.url.startsWith("data:")) {
+              m.url = saveBase64File(m.url, m.id || "media");
+              hasMigrated = true;
+            }
+            return m;
+          });
+        }
+        if (parsed && Array.isArray(parsed.scheduled_posts)) {
+          parsed.scheduled_posts = parsed.scheduled_posts.map((p: any) => {
+            if (p && Array.isArray(p.mediaUrls)) {
+              p.mediaUrls = p.mediaUrls.map((u: any, i: number) => {
+                if (u && u.startsWith("data:")) {
+                  const newUrl = saveBase64File(u, `${p.id || "post"}_${i}`);
+                  hasMigrated = true;
+                  return newUrl;
+                }
+                return u;
+              });
+            }
+            return p;
+          });
+        }
+        if (hasMigrated) {
+          try {
+            fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), "utf8");
+            console.log("[Migration] Successfully migrated large base64 media to local physical files inside /uploads folder!");
+          } catch (e) {
+            console.error("[Migration Error] Failed to write migrated DB back to disk:", e);
+          }
+        }
       }
     }
     
@@ -480,16 +591,16 @@ function readDB(): DB {
 }
 
 function writeDB(db: DB) {
-  // Automatically enforce limits on log and message history to keep the database size extremely small (< 15KB)
+  // Automatically enforce limits on log and message history to keep the database size extremely small (< 150KB)
   // This prevents environment variable size issues (64KB limits) in serverless deployment environments like Vercel
   if (Array.isArray(db.publish_logs)) {
-    if (db.publish_logs.length > 20) {
-      db.publish_logs = db.publish_logs.slice(-20);
+    if (db.publish_logs.length > 300) {
+      db.publish_logs = db.publish_logs.slice(-300);
     }
   }
   if (Array.isArray(db.autoreply_messages)) {
-    if (db.autoreply_messages.length > 15) {
-      db.autoreply_messages = db.autoreply_messages.slice(-15);
+    if (db.autoreply_messages.length > 300) {
+      db.autoreply_messages = db.autoreply_messages.slice(-300);
     }
   }
 
@@ -770,6 +881,40 @@ app.get("/api/media-public/:id", async (req, res) => {
     return res.status(404).send("Media asset not found.");
   }
 
+  // Handle physical uploaded files stored locally
+  if (asset.url.startsWith("/uploads/")) {
+    const localPath = path.join(process.cwd(), asset.url);
+    if (fs.existsSync(localPath)) {
+      // If it's a video, serve it directly with video/mp4 content type
+      if (asset.type === "video" || asset.url.endsWith(".mp4") || asset.url.endsWith(".mov")) {
+        res.setHeader("Content-Type", "video/mp4");
+        return res.sendFile(localPath);
+      }
+
+      // If it's already a JPEG, serve it directly to avoid unnecessary conversion
+      if (asset.url.endsWith(".jpg") || asset.url.endsWith(".jpeg")) {
+        res.setHeader("Content-Type", "image/jpeg");
+        return res.sendFile(localPath);
+      }
+
+      // Convert other formats (PNG, WebP, GIF, etc.) to JPEG
+      try {
+        const { Jimp } = await import("jimp");
+        const image = await Jimp.read(localPath);
+        const jpegBuffer = await image.getBuffer("image/jpeg");
+        res.setHeader("Content-Type", "image/jpeg");
+        return res.send(jpegBuffer);
+      } catch (err) {
+        console.error("[Media Public Proxy] Error converting physical image file to JPEG:", err);
+        // Fallback to sending original file directly
+        const ext = path.extname(localPath).toLowerCase();
+        const contentType = ext === ".png" ? "image/png" : (ext === ".webp" ? "image/webp" : "application/octet-stream");
+        res.setHeader("Content-Type", contentType);
+        return res.sendFile(localPath);
+      }
+    }
+  }
+
   if (asset.url.startsWith("data:")) {
     const matches = asset.url.match(/^data:([a-zA-Z0-9-+.//_]+);base64,(.+)$/);
     if (matches && matches.length === 3) {
@@ -816,11 +961,14 @@ app.post("/api/upload-media", (req, res) => {
     return res.status(400).json({ error: "Media resource URL or data payload is required." });
   }
 
+  const assetId = "med_" + Math.random().toString(36).substring(2, 11);
+  const savedUrl = saveBase64File(url, assetId);
+
   const newAsset: MediaAsset = {
-    id: "med_" + Math.random().toString(36).substring(2, 11),
+    id: assetId,
     userId: db.currentUser?.id || "usr_active",
     name: name || `upload_${Date.now()}.${type === "video" ? "mp4" : "jpg"}`,
-    url,
+    url: savedUrl,
     type: type || "image",
     size: size || "1.5 MB",
     createdAt: new Date().toISOString()
@@ -898,15 +1046,23 @@ app.post("/api/posts", (req, res) => {
     return res.status(400).json({ error: "Connected Instagram Account not found." });
   }
 
+  const postId = "post_" + Math.random().toString(36).substring(2, 11);
+  const savedMediaUrls = mediaUrls.map((u: string, i: number) => {
+    if (u && u.startsWith("data:")) {
+      return saveBase64File(u, `${postId}_${i}`);
+    }
+    return u;
+  });
+
   const newPost: ScheduledPost = {
-    id: "post_" + Math.random().toString(36).substring(2, 11),
+    id: postId,
     userId: db.currentUser?.id || "usr_active",
     instagramAccountId,
     instagramAccountUsername: account.username,
     type,
     caption,
     mediaAssetIds: mediaAssetIds || [],
-    mediaUrls,
+    mediaUrls: savedMediaUrls,
     scheduledFor: scheduledFor || new Date().toISOString(),
     status: "pending",
     timezone: timezone || "UTC",
@@ -1208,7 +1364,7 @@ app.get("/api/bot/settings", (req, res) => {
 
 app.post("/api/bot/settings", (req, res) => {
   const db = readDB();
-  const { timezone, appPublicUrl, customWebhookUrl } = req.body;
+  const { timezone, appPublicUrl, customWebhookUrl, manychatBranding } = req.body;
 
   if (timezone !== undefined) {
     db.settings.timezone = timezone;
@@ -1218,6 +1374,9 @@ app.post("/api/bot/settings", (req, res) => {
   }
   if (customWebhookUrl !== undefined) {
     db.settings.customWebhookUrl = customWebhookUrl;
+  }
+  if (manychatBranding !== undefined) {
+    db.settings.manychatBranding = manychatBranding;
   }
 
   writeDB(db);
@@ -1235,7 +1394,18 @@ app.get("/api/autoreply/rules", (req, res) => {
 // Add a rule
 app.post("/api/autoreply/rules", (req, res) => {
   const db = readDB();
-  const { triggerType, keywords, replyType, staticReplyText, aiPromptInstruction, isActive } = req.body;
+  const { 
+    triggerType, 
+    keywords, 
+    replyType, 
+    staticReplyText, 
+    aiPromptInstruction, 
+    isActive,
+    delaySeconds,
+    buttons,
+    captureLeadField,
+    captureSuccessText
+  } = req.body;
 
   const newRule: AutoReplyRule = {
     id: "rule_" + Math.random().toString(36).substring(2, 11),
@@ -1245,7 +1415,11 @@ app.post("/api/autoreply/rules", (req, res) => {
     staticReplyText: staticReplyText || "",
     aiPromptInstruction: aiPromptInstruction || "",
     isActive: isActive !== undefined ? !!isActive : true,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    delaySeconds: delaySeconds !== undefined ? Number(delaySeconds) : undefined,
+    buttons: Array.isArray(buttons) ? buttons : undefined,
+    captureLeadField: captureLeadField || "none",
+    captureSuccessText: captureSuccessText || ""
   };
 
   if (!db.autoreply_rules) db.autoreply_rules = [];
@@ -1259,7 +1433,18 @@ app.post("/api/autoreply/rules", (req, res) => {
 app.put("/api/autoreply/rules/:id", (req, res) => {
   const db = readDB();
   const { id } = req.params;
-  const { triggerType, keywords, replyType, staticReplyText, aiPromptInstruction, isActive } = req.body;
+  const { 
+    triggerType, 
+    keywords, 
+    replyType, 
+    staticReplyText, 
+    aiPromptInstruction, 
+    isActive,
+    delaySeconds,
+    buttons,
+    captureLeadField,
+    captureSuccessText
+  } = req.body;
 
   const rules = db.autoreply_rules || [];
   const index = rules.findIndex(r => r.id === id);
@@ -1275,7 +1460,11 @@ app.put("/api/autoreply/rules/:id", (req, res) => {
     replyType: replyType !== undefined ? replyType : rules[index].replyType,
     staticReplyText: staticReplyText !== undefined ? staticReplyText : rules[index].staticReplyText,
     aiPromptInstruction: aiPromptInstruction !== undefined ? aiPromptInstruction : rules[index].aiPromptInstruction,
-    isActive: isActive !== undefined ? !!isActive : rules[index].isActive
+    isActive: isActive !== undefined ? !!isActive : rules[index].isActive,
+    delaySeconds: delaySeconds !== undefined ? (delaySeconds === null ? undefined : Number(delaySeconds)) : rules[index].delaySeconds,
+    buttons: buttons !== undefined ? (buttons === null ? undefined : buttons) : rules[index].buttons,
+    captureLeadField: captureLeadField !== undefined ? captureLeadField : rules[index].captureLeadField,
+    captureSuccessText: captureSuccessText !== undefined ? captureSuccessText : rules[index].captureSuccessText
   };
 
   rules[index] = updatedRule;
@@ -1312,6 +1501,31 @@ app.get("/api/autoreply/messages", (req, res) => {
 app.post("/api/autoreply/clear-messages", (req, res) => {
   const db = readDB();
   db.autoreply_messages = [];
+  writeDB(db);
+  res.json({ success: true });
+});
+
+// Get all captured leads
+app.get("/api/autoreply/leads", (req, res) => {
+  const db = readDB();
+  res.json(db.autoreply_leads || []);
+});
+
+// Delete a captured lead
+app.delete("/api/autoreply/leads/:id", (req, res) => {
+  const db = readDB();
+  const { id } = req.params;
+  const leads = db.autoreply_leads || [];
+  const filtered = leads.filter(l => l.id !== id);
+  db.autoreply_leads = filtered;
+  writeDB(db);
+  res.json({ success: true });
+});
+
+// Clear all captured leads
+app.post("/api/autoreply/clear-leads", (req, res) => {
+  const db = readDB();
+  db.autoreply_leads = [];
   writeDB(db);
   res.json({ success: true });
 });
@@ -1369,30 +1583,101 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
   const rules = db.autoreply_rules || [];
   let matchedRule: AutoReplyRule | undefined = undefined;
 
-  // Try matching keyword rules first
-  const activeKeywordRules = rules.filter(r => r.isActive && r.triggerType === "keyword");
-  
-  for (const rule of activeKeywordRules) {
-    const hasMatchingKeyword = rule.keywords.some(keyword => 
-      messageText.toLowerCase().includes(keyword.toLowerCase().trim())
-    );
-    if (hasMatchingKeyword) {
-      matchedRule = rule;
-      break;
+  // 1. Lead Capture Recognition & Extraction
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+  const phoneRegex = /\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b/;
+
+  const emailMatch = messageText.match(emailRegex);
+  const phoneMatch = messageText.match(phoneRegex);
+
+  let isLeadCaptured = false;
+  let capturedEmail = emailMatch ? emailMatch[0] : undefined;
+  let capturedPhone = phoneMatch ? phoneMatch[0] : undefined;
+
+  const userMessages = (db.autoreply_messages || []).filter(m => m.senderUsername === senderUsername);
+  const lastBotReply = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null;
+
+  // If the last bot reply explicitly asked for email/phone, capture the entire text if regex didn't match perfectly
+  if (lastBotReply && lastBotReply.matchedRuleId) {
+    const lastRule = rules.find(r => r.id === lastBotReply.matchedRuleId);
+    if (lastRule && lastRule.captureLeadField && lastRule.captureLeadField !== "none") {
+      const field = lastRule.captureLeadField;
+      if (field === "email" && !capturedEmail) {
+        if (messageText.includes("@")) {
+          capturedEmail = messageText.trim();
+        }
+      } else if (field === "phone" && !capturedPhone) {
+        const digits = messageText.replace(/\D/g, "");
+        if (digits.length >= 7) {
+          capturedPhone = messageText.trim();
+        }
+      }
     }
   }
 
-  // If no keyword rule matches, find an active "always" rule
-  if (!matchedRule) {
-    matchedRule = rules.find(r => r.isActive && r.triggerType === "always");
+  // If captured, register/update the lead in CRM
+  if (capturedEmail || capturedPhone) {
+    if (!db.autoreply_leads) db.autoreply_leads = [];
+    let lead = db.autoreply_leads.find(l => l.username.toLowerCase() === senderUsername.toLowerCase());
+    if (!lead) {
+      lead = {
+        id: "lead_" + Math.random().toString(36).substring(2, 11),
+        username: senderUsername,
+        status: "new",
+        lastInteracted: new Date().toISOString()
+      };
+      db.autoreply_leads.push(lead);
+    }
+    if (capturedEmail) lead.email = capturedEmail;
+    if (capturedPhone) lead.phone = capturedPhone;
+    lead.lastInteracted = new Date().toISOString();
+    lead.status = "qualified";
+    isLeadCaptured = true;
+  }
+
+  // 2. Select matching rule
+  if (!isLeadCaptured) {
+    // Try matching keyword rules first
+    const activeKeywordRules = rules.filter(r => r.isActive && r.triggerType === "keyword");
+    
+    for (const rule of activeKeywordRules) {
+      const hasMatchingKeyword = rule.keywords.some(keyword => 
+        messageText.toLowerCase().includes(keyword.toLowerCase().trim())
+      );
+      if (hasMatchingKeyword) {
+        matchedRule = rule;
+        break;
+      }
+    }
+
+    // If no keyword rule matches, find an active "always" rule
+    if (!matchedRule) {
+      matchedRule = rules.find(r => r.isActive && r.triggerType === "always");
+    }
   }
 
   let replySent = "";
   let replyType: "static" | "ai" | "none" = "none";
   let matchedRuleId = matchedRule ? matchedRule.id : undefined;
+  let responseButtons: { label: string; triggerKeyword: string }[] | undefined = undefined;
 
-  if (matchedRule) {
+  // 3. Assemble Bot Response Content
+  if (isLeadCaptured) {
+    replyType = "static";
+    let successText = "Got it! Your contact details have been successfully saved to our CRM. Thank you! 📬";
+    if (lastBotReply && lastBotReply.matchedRuleId) {
+      const lastRule = rules.find(r => r.id === lastBotReply.matchedRuleId);
+      if (lastRule && lastRule.captureSuccessText) {
+        successText = lastRule.captureSuccessText;
+      }
+    }
+    replySent = successText;
+  } else if (matchedRule) {
     replyType = matchedRule.replyType;
+    if (matchedRule.buttons && matchedRule.buttons.length > 0) {
+      responseButtons = matchedRule.buttons;
+    }
+
     if (matchedRule.replyType === "static") {
       replySent = matchedRule.staticReplyText || "Thank you for your message! We will get back to you soon.";
     } else if (matchedRule.replyType === "ai") {
@@ -1415,11 +1700,9 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
           } else {
             console.error("[Auto-Responder] Gemini API error:", err.message || err);
           }
-          // Fall back gracefully to high-quality smart reply
           replySent = generateSmartFallbackReply(messageText, matchedRule.aiPromptInstruction || "");
         }
       } else {
-        // If API key is not set, or we explicitly force offline mode (e.g. for background mock simulator ticks to save quota)
         replySent = generateSmartFallbackReply(messageText, matchedRule.aiPromptInstruction || "");
       }
     }
@@ -1435,7 +1718,9 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
     replySent,
     replyType,
     matchedRuleId,
-    isComment: !!isComment
+    isComment: !!isComment,
+    buttons: responseButtons,
+    includeBranding: !!db.settings?.manychatBranding
   };
 
   if (!db.autoreply_messages) db.autoreply_messages = [];
@@ -1450,8 +1735,10 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
     id: "log_" + Math.random().toString(36).substring(2, 11),
     scheduledPostId: "",
     timestamp: new Date().toISOString(),
-    status: "success",
-    message: `[Auto-Responder] Received message from @${senderUsername}: "${messageText}". Matched rule: ${matchedRule ? matchedRule.id : 'None'}. Automatic reply sent.`,
+    status: isLeadCaptured ? "success" : "info",
+    message: isLeadCaptured 
+      ? `[ManyChat Lead Captured] Successfully captured contact information for @${senderUsername}! Saved to CRM.` 
+      : `[Auto-Responder] Received message from @${senderUsername}: "${messageText}". Matched rule: ${matchedRule ? matchedRule.id : 'None'}. Automatic reply sent.`,
     attemptCount: 1
   });
   if (db.publish_logs.length > 300) {
@@ -1481,13 +1768,32 @@ app.post("/api/autoreply/simulate", async (req, res) => {
 // --- REAL INSTAGRAM WEBHOOK INTEGRATION ENDPOINTS ---
 
 // GET Webhook verification (Meta App Review / Setup)
-app.get("/api/webhook/instagram", (req, res) => {
+app.get("/api/webhook/instagram", async (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   // Default verify token: sfr_digitech_verify_token (can be customized via environment variable)
   const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "sfr_digitech_verify_token";
+
+  const host = req.get("host") || "";
+
+  // If request hits the pre-prod container, forward to dev container where the live DB and accounts reside
+  if (host.includes("ais-pre-")) {
+    const devUrl = `https://${host.replace("ais-pre-", "ais-dev-")}/api/webhook/instagram?hub.mode=${mode || ""}&hub.verify_token=${token || ""}&hub.challenge=${challenge || ""}`;
+    console.log(`[Webhook Forwarding] Forwarding GET verification to dev container: ${devUrl}`);
+    try {
+      const devRes = await fetch(devUrl);
+      if (devRes.ok) {
+        const text = await devRes.text();
+        return res.status(devRes.status).send(text);
+      } else {
+        return res.sendStatus(devRes.status);
+      }
+    } catch (err: any) {
+      console.error("[Webhook Forwarding Error] Failed to forward GET verification:", err);
+    }
+  }
 
   // Log incoming verification attempt
   const dbLog = readDB();
@@ -1513,7 +1819,6 @@ app.get("/api/webhook/instagram", (req, res) => {
   }
 
   // Fallback: If visited directly in browser, serve a beautiful instructions & status page
-  const host = req.get("host") || "";
   const protocol = req.protocol || "https";
   const publicHost = host.replace("ais-dev-", "ais-pre-");
   const publicUrl = `${protocol}://${publicHost}/api/webhook/instagram`;
@@ -1640,6 +1945,29 @@ app.get("/api/webhook/instagram", (req, res) => {
 // POST Webhook receiver (Meta delivers DMs & Comments here)
 app.post("/api/webhook/instagram", async (req, res) => {
   const body = req.body;
+  const host = req.get("host") || "";
+
+  // If request hits the pre-prod container, forward to dev container where the live DB and accounts reside
+  if (host.includes("ais-pre-")) {
+    const devUrl = `https://${host.replace("ais-pre-", "ais-dev-")}/api/webhook/instagram`;
+    console.log(`[Webhook Forwarding] Forwarding POST webhook event to dev container: ${devUrl}`);
+    try {
+      const devRes = await fetch(devUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(req.headers["x-hub-signature-256"] ? { "x-hub-signature-256": req.headers["x-hub-signature-256"] as string } : {}),
+          ...(req.headers["x-hub-signature"] ? { "x-hub-signature": req.headers["x-hub-signature"] as string } : {})
+        },
+        body: JSON.stringify(body)
+      });
+      const text = await devRes.text();
+      return res.status(devRes.status).send(text);
+    } catch (err: any) {
+      console.error("[Webhook Forwarding Error] Failed to forward POST webhook event:", err);
+      // Fallback: continue local processing if forwarding fails
+    }
+  }
 
   // Log incoming webhook requests for debugging physical events
   const dbLog = readDB();
@@ -1732,10 +2060,12 @@ app.post("/api/webhook/instagram", async (req, res) => {
 
             // Try to fetch real username if we have a real access token
             const isRealToken = accessToken && accessToken.length > 30 && !accessToken.includes("mock");
+            const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
+            const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
 
             if (isRealToken && senderId) {
               try {
-                const userRes = await fetch(`https://graph.facebook.com/v20.0/${senderId}?fields=username&access_token=${accessToken}`);
+                const userRes = await fetch(`https://${graphHost}/v20.0/${senderId}?fields=username&access_token=${accessToken}`);
                 if (userRes.ok) {
                   const userData: any = await userRes.json();
                   if (userData.username) {
@@ -1753,8 +2083,8 @@ app.post("/api/webhook/instagram", async (req, res) => {
             // Send actual message back via Meta Graph API if token is real
             if (isRealToken && newMessage.replySent && !newMessage.replySent.includes("[AI Auto-Responder Error]") && senderId) {
               try {
-                console.log(`[Webhook] Sending real DM reply back to @${senderUsername} (${senderId})...`);
-                const sendRes = await fetch(`https://graph.facebook.com/v20.0/me/messages?access_token=${accessToken}`, {
+                console.log(`[Webhook] Sending real DM reply back to @${senderUsername} (${senderId}) via ${graphHost}...`);
+                const sendRes = await fetch(`https://${graphHost}/v20.0/me/messages?access_token=${accessToken}`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -1778,6 +2108,24 @@ app.post("/api/webhook/instagram", async (req, res) => {
                   writeDB(db);
                 } else {
                   console.log("[Webhook] Real DM reply successfully delivered via Graph API.");
+                  
+                  // Send ManyChat watermark branding bubble if enabled
+                  if (newMessage.includeBranding) {
+                    try {
+                      await new Promise(resolve => setTimeout(resolve, 800)); // Short typing pause for realism
+                      await fetch(`https://${graphHost}/v20.0/me/messages?access_token=${accessToken}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          recipient: { id: senderId },
+                          message: { text: "Automation powered by @Manychat 🐙" }
+                        })
+                      });
+                      console.log("[Webhook] Real ManyChat branding watermark bubble delivered successfully.");
+                    } catch (brandErr) {
+                      console.error("[Webhook] Failed to deliver ManyChat branding bubble:", brandErr);
+                    }
+                  }
                 }
               } catch (err) {
                 console.error("[Webhook] Error during Meta Graph API DM delivery:", err);
@@ -1813,6 +2161,8 @@ app.post("/api/webhook/instagram", async (req, res) => {
 
               let accessToken = account?.accessToken || "";
               const isRealToken = accessToken && accessToken.length > 30 && !accessToken.includes("mock");
+              const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
+              const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
 
               // Execute auto-reply rule logic
               const newMessage = await executeAutoReply(senderUsername, commentText, true);
@@ -1820,8 +2170,8 @@ app.post("/api/webhook/instagram", async (req, res) => {
               // Send real comment reply if real token is present
               if (isRealToken && newMessage.replySent && !newMessage.replySent.includes("[AI Auto-Responder Error]")) {
                 try {
-                  console.log(`[Webhook] Sending real comment reply to @${senderUsername}...`);
-                  const sendRes = await fetch(`https://graph.facebook.com/v20.0/${commentId}/replies?access_token=${accessToken}`, {
+                  console.log(`[Webhook] Sending real comment reply to @${senderUsername} via ${graphHost}...`);
+                  const sendRes = await fetch(`https://${graphHost}/v20.0/${commentId}/replies?access_token=${accessToken}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -1893,7 +2243,13 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
     let contentType = "";
     let filename = asset.name || "media_upload";
 
-    if (asset.url.startsWith("data:")) {
+    if (asset.url.startsWith("/uploads/")) {
+      const localPath = path.join(process.cwd(), asset.url);
+      if (fs.existsSync(localPath)) {
+        buffer = fs.readFileSync(localPath);
+        contentType = asset.type === "video" ? "video/mp4" : (asset.url.endsWith(".png") ? "image/png" : "image/jpeg");
+      }
+    } else if (asset.url.startsWith("data:")) {
       const matches = asset.url.match(/^data:([a-zA-Z0-9-+.//_]+);base64,(.+)$/);
       if (matches && matches.length === 3) {
         contentType = matches[1];
@@ -2076,13 +2432,6 @@ function runAutomatedScheduler() {
             if (publicUrlBase && !publicUrlBase.includes("localhost") && !publicUrlBase.includes("127.0.0.1") && publicUrlBase.startsWith("http://")) {
               publicUrlBase = publicUrlBase.replace("http://", "https://");
             }
-            // We use the first media asset of the post
-            const mediaAssetId = post.mediaAssetIds[0];
-            const mediaUrl = mediaAssetId 
-              ? `${publicUrlBase}/api/media-public/${mediaAssetId}`
-              : (post.mediaUrls[0] || "");
-
-            console.log(`[Meta Engine] Public Media URL for Instagram: ${mediaUrl}`);
 
             // Perform async execution to avoid blocking the main 10s tick loop
             (async () => {
@@ -2092,83 +2441,271 @@ function runAutomatedScheduler() {
                 const isInstagramLoginToken = account.accessToken.trim().toUpperCase().startsWith("IGAA");
                 const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
 
-                // Resolve media URL to a fully public URL if we're in a dev sandbox
-                const finalMediaUrl = mediaAssetId
-                  ? await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl)
-                  : mediaUrl;
+                let creationId = "";
 
-                // Phase 1: Create Container
-                const containerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
-                
-                const currentDb1 = readDB();
-                currentDb1.publish_logs.push({
-                  id: "log_" + Math.random().toString(36).substring(2, 11),
-                  scheduledPostId: post.id,
-                  timestamp: new Date().toISOString(),
-                  status: "info",
-                  message: `[Meta Engine] Step 1: Initializing Container creation on Meta servers. Posting to ${graphHost}/...`,
-                  attemptCount: 1
-                });
-                writeDB(currentDb1);
+                // Helper to poll the status of a specific container until it's finished
+                const pollContainerStatus = async (
+                  containerId: string, 
+                  label: string
+                ): Promise<void> => {
+                  const checkUrl = `https://${graphHost}/v20.0/${containerId}?fields=status_code,status&access_token=${account.accessToken}`;
+                  const maxRetries = 20; // 20 retries * 5s = 100 seconds timeout
+                  const delayMs = 5000;
 
-                // Check type to publish correctly (Reel/Video vs Photo)
-                const isVideo = post.type === "reel"; // check if it's video
-                const payload: any = {
-                  caption: post.caption,
-                  access_token: account.accessToken
+                  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    const db = readDB();
+                    db.publish_logs.push({
+                      id: "log_" + Math.random().toString(36).substring(2, 11),
+                      scheduledPostId: post.id,
+                      timestamp: new Date().toISOString(),
+                      status: "info",
+                      message: `[Meta Engine] Polling status for ${label} (${containerId}) - Attempt ${attempt}/${maxRetries}...`,
+                      attemptCount: 1
+                    });
+                    writeDB(db);
+
+                    try {
+                      const res = await fetch(checkUrl);
+                      const data = await res.json();
+                      console.log(`[Meta Engine] Container ${containerId} status check:`, data);
+
+                      const statusCode = data.status_code || data.status;
+
+                      if (statusCode === "FINISHED") {
+                        const successDb = readDB();
+                        successDb.publish_logs.push({
+                          id: "log_" + Math.random().toString(36).substring(2, 11),
+                          scheduledPostId: post.id,
+                          timestamp: new Date().toISOString(),
+                          status: "success",
+                          message: `[Meta Engine] ${label} (${containerId}) is ready! Status: ${statusCode}`,
+                          attemptCount: 1
+                        });
+                        writeDB(successDb);
+                        return; // Success, ready to proceed!
+                      }
+
+                      if (statusCode === "ERROR") {
+                        const errorMsg = data.error_message || data.error?.message || `Meta Container ${containerId} reports ERROR status.`;
+                        throw new Error(errorMsg);
+                      }
+
+                      if (statusCode === "EXPIRED") {
+                        throw new Error(`Meta Container ${containerId} status has EXPIRED.`);
+                      }
+
+                      // Still IN_PROGRESS, wait and retry
+                      await new Promise(resolve => setTimeout(resolve, delayMs));
+
+                    } catch (err: any) {
+                      console.error(`[Meta Engine] Error checking status for container ${containerId}:`, err);
+                      const isCriticalError = err.message && (
+                        err.message.includes("reports ERROR status") || 
+                        err.message.includes("has EXPIRED")
+                      );
+                      if (isCriticalError) {
+                        throw err;
+                      }
+                      if (attempt === maxRetries) {
+                        throw new Error(`Timeout waiting for ${label} (${containerId}) to be ready: ${err.message}`);
+                      }
+                      await new Promise(resolve => setTimeout(resolve, delayMs));
+                    }
+                  }
+
+                  throw new Error(`Timeout waiting for ${label} (${containerId}) to become FINISHED.`);
                 };
 
-                if (isVideo) {
-                  payload.media_type = "REELS";
-                  payload.video_url = finalMediaUrl;
-                } else {
-                  payload.image_url = finalMediaUrl;
-                }
+                if (post.type === "carousel") {
+                  const childrenContainerIds: string[] = [];
+                  const totalAssets = Math.max(post.mediaAssetIds?.length || 0, post.mediaUrls?.length || 0);
 
-                console.log("[Meta Engine] Creating Container with payload:", { ...payload, access_token: "REDACTED" });
+                  const dbForAssets = readDB();
+                  for (let i = 0; i < totalAssets; i++) {
+                    const assetId = post.mediaAssetIds?.[i];
+                    const rawUrl = assetId
+                      ? `${publicUrlBase}/api/media-public/${assetId}`
+                      : (post.mediaUrls?.[i] || "");
 
-                const containerRes = await fetch(containerUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(payload)
-                });
+                    if (!rawUrl) continue;
 
-                const containerData = await containerRes.json();
-                
-                if (!containerRes.ok || !containerData.id) {
-                  const errMsg = containerData.error?.message || JSON.stringify(containerData);
-                  throw new Error(`Meta Container Creation Failed: ${errMsg}`);
-                }
+                    // Determine if it's video or image
+                    let isAssetVideo = false;
+                    if (assetId) {
+                      const mediaObj = dbForAssets.media.find(m => m.id === assetId);
+                      if (mediaObj && mediaObj.type === "video") {
+                        isAssetVideo = true;
+                      }
+                    } else {
+                      const lowercaseUrl = rawUrl.toLowerCase();
+                      if (lowercaseUrl.includes(".mp4") || lowercaseUrl.includes(".mov") || lowercaseUrl.includes(".avi") || lowercaseUrl.includes(".webm")) {
+                        isAssetVideo = true;
+                      }
+                    }
 
-                const creationId = containerData.id;
-                console.log(`[Meta Engine] Container created successfully! ID: ${creationId}`);
+                    // Get public URL using our helper
+                    const finalItemUrl = assetId
+                      ? await getPublicMediaUrlForInstagram(post.id, assetId, rawUrl)
+                      : rawUrl;
 
-                const currentDb2 = readDB();
-                currentDb2.publish_logs.push({
-                  id: "log_" + Math.random().toString(36).substring(2, 11),
-                  scheduledPostId: post.id,
-                  timestamp: new Date().toISOString(),
-                  status: "success",
-                  message: `[Meta Engine] Media Container created successfully on Meta servers! Container ID: ${creationId}`,
-                  attemptCount: 1
-                });
-                writeDB(currentDb2);
+                    // Create item container
+                    const itemContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+                    const itemPayload: any = {
+                      access_token: account.accessToken,
+                      is_carousel_item: true
+                    };
 
-                // Phase 1.5: If it is a Reel/Video, wait for container to be fully processed by Meta's async transcoder.
-                if (isVideo) {
-                  currentDb2.publish_logs.push({
+                    if (isAssetVideo) {
+                      itemPayload.media_type = "VIDEO";
+                      itemPayload.video_url = finalItemUrl;
+                    } else {
+                      itemPayload.image_url = finalItemUrl;
+                    }
+
+                    const itemDb = readDB();
+                    itemDb.publish_logs.push({
+                      id: "log_" + Math.random().toString(36).substring(2, 11),
+                      scheduledPostId: post.id,
+                      timestamp: new Date().toISOString(),
+                      status: "info",
+                      message: `[Meta Engine] Step 1.1: Requesting item container ${i + 1}/${totalAssets} (${isAssetVideo ? "Video" : "Image"})...`,
+                      attemptCount: 1
+                    });
+                    writeDB(itemDb);
+
+                    const itemRes = await fetch(itemContainerUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(itemPayload)
+                    });
+
+                    const itemData = await itemRes.json();
+                    if (!itemRes.ok || !itemData.id) {
+                      const errMsg = itemData.error?.message || JSON.stringify(itemData);
+                      throw new Error(`Meta Carousel Item Container Creation Failed (Item ${i + 1}): ${errMsg}`);
+                    }
+
+                    childrenContainerIds.push(itemData.id);
+                  }
+
+                  // Poll EACH child container until its status_code is "FINISHED"
+                  for (let i = 0; i < childrenContainerIds.length; i++) {
+                    await pollContainerStatus(
+                      childrenContainerIds[i], 
+                      `Carousel item container ${i + 1}/${childrenContainerIds.length}`
+                    );
+                  }
+
+                  // Create the main Carousel Container
+                  const carouselContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+                  const carouselPayload = {
+                    media_type: "CAROUSEL",
+                    children: childrenContainerIds,
+                    caption: post.caption,
+                    access_token: account.accessToken
+                  };
+
+                  const mainDb = readDB();
+                  mainDb.publish_logs.push({
                     id: "log_" + Math.random().toString(36).substring(2, 11),
                     scheduledPostId: post.id,
                     timestamp: new Date().toISOString(),
                     status: "info",
-                    message: `[Meta Engine] Video transcoder delay active. Waiting 20 seconds for Meta server video compilation...`,
+                    message: `[Meta Engine] Step 1.2: Creating main CAROUSEL container with children IDs [${childrenContainerIds.join(", ")}]...`,
+                    attemptCount: 1
+                  });
+                  writeDB(mainDb);
+
+                  const carouselRes = await fetch(carouselContainerUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(carouselPayload)
+                  });
+
+                  const carouselData = await carouselRes.json();
+                  if (!carouselRes.ok || !carouselData.id) {
+                    const errMsg = carouselData.error?.message || JSON.stringify(carouselData);
+                    throw new Error(`Meta Carousel Container Creation Failed: ${errMsg}`);
+                  }
+
+                  creationId = carouselData.id;
+
+                  const currentDb2 = readDB();
+                  currentDb2.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "success",
+                    message: `[Meta Engine] Carousel Container created successfully on Meta servers! Container ID: ${creationId}`,
                     attemptCount: 1
                   });
                   writeDB(currentDb2);
-                  await new Promise((resolve) => setTimeout(resolve, 20000));
+
+                  // Poll the main Carousel Container status until FINISHED
+                  await pollContainerStatus(creationId, "Main Carousel Container");
+
                 } else {
-                  // Wait 5 seconds for photo to download on Meta's proxy
-                  await new Promise((resolve) => setTimeout(resolve, 5000));
+                  // Single Photo or Single Video/Reel
+                  const mediaAssetId = post.mediaAssetIds[0];
+                  const mediaUrl = mediaAssetId 
+                    ? `${publicUrlBase}/api/media-public/${mediaAssetId}`
+                    : (post.mediaUrls[0] || "");
+
+                  const finalMediaUrl = mediaAssetId
+                    ? await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl)
+                    : mediaUrl;
+
+                  const isVideo = post.type === "reel" || (post.type === "photo" && (mediaAssetId ? readDB().media.find(m => m.id === mediaAssetId)?.type === "video" : (mediaUrl.toLowerCase().includes(".mp4") || false)));
+
+                  const payload: any = {
+                    caption: post.caption,
+                    access_token: account.accessToken
+                  };
+
+                  if (post.type === "reel") {
+                    payload.media_type = "REELS";
+                    payload.video_url = finalMediaUrl;
+                    payload.share_to_feed = true;
+                  } else if (isVideo) {
+                    payload.media_type = "VIDEO";
+                    payload.video_url = finalMediaUrl;
+                  } else {
+                    payload.image_url = finalMediaUrl;
+                  }
+
+                  console.log("[Meta Engine] Creating Container with payload:", { ...payload, access_token: "REDACTED" });
+
+                  const containerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+                  const containerRes = await fetch(containerUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                  });
+
+                  const containerData = await containerRes.json();
+                  if (!containerRes.ok || !containerData.id) {
+                    const errMsg = containerData.error?.message || JSON.stringify(containerData);
+                    throw new Error(`Meta Container Creation Failed: ${errMsg}`);
+                  }
+
+                  creationId = containerData.id;
+
+                  const currentDb2 = readDB();
+                  currentDb2.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "success",
+                    message: `[Meta Engine] Media Container created successfully on Meta servers! Container ID: ${creationId}`,
+                    attemptCount: 1
+                  });
+                  writeDB(currentDb2);
+
+                  // Poll the main single container status until FINISHED
+                  await pollContainerStatus(
+                    creationId, 
+                    post.type === "reel" ? "Single Reel Container" : "Single Media Container"
+                  );
                 }
 
                 // Phase 2: Publish the container

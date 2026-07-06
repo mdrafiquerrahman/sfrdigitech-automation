@@ -61,6 +61,9 @@ export interface BotSettings {
   timezone: string;
   isBotConnected: boolean;
   lastHeartbeat: string | null;
+  appPublicUrl?: string;
+  customWebhookUrl?: string;
+  manychatBranding?: boolean;
 }
 
 export interface AICaptionResponse {
@@ -79,6 +82,11 @@ export interface AutoReplyRule {
   aiPromptInstruction: string;
   isActive: boolean;
   createdAt: string;
+  // ManyChat Enhancements
+  delaySeconds?: number;
+  buttons?: { label: string; triggerKeyword: string }[];
+  captureLeadField?: "email" | "phone" | "none";
+  captureSuccessText?: string;
 }
 
 export interface InstagramMessage {
@@ -90,4 +98,18 @@ export interface InstagramMessage {
   replyType?: "static" | "ai" | "none";
   matchedRuleId?: string;
   isComment?: boolean;
+  // ManyChat interactive payload
+  buttons?: { label: string; triggerKeyword: string }[];
+  isTyping?: boolean;
+  includeBranding?: boolean;
+}
+
+export interface CapturedLead {
+  id: string;
+  username: string;
+  email?: string;
+  phone?: string;
+  lastInteracted: string;
+  status: "new" | "qualified" | "contacted";
+  notes?: string;
 }
