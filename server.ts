@@ -1778,10 +1778,57 @@ app.get("/api/webhook/instagram", async (req, res) => {
 
   const host = req.get("host") || "";
 
-  // If request hits the pre-prod container, forward to dev container where the live DB and accounts reside
+  // 1. If it's an actual Meta verification challenge (has mode and token), answer immediately locally!
+  if (mode && token) {
+    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+      console.log(`[Webhook] Instagram Webhook verified successfully with token: ${VERIFY_TOKEN}`);
+      
+      // Log verification success to DB asynchronously
+      try {
+        const dbLog = readDB();
+        if (!dbLog.publish_logs) dbLog.publish_logs = [];
+        dbLog.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: "",
+          timestamp: new Date().toISOString(),
+          status: "success",
+          message: `[Meta Webhook Verification] Webhook verified successfully locally. Mode: "${mode}", Token: "${token}", Challenge: "${challenge}".`,
+          attemptCount: 1
+        });
+        writeDB(dbLog);
+      } catch (e: any) {
+        console.error("[Webhook Log Error] Failed to write verification log:", e.message);
+      }
+
+      return res.status(200).send(challenge);
+    } else {
+      console.warn(`[Webhook] Instagram Webhook verification failed. Token mismatch. Expected: "${VERIFY_TOKEN}", Received: "${token}"`);
+      
+      // Log verification failure to DB asynchronously
+      try {
+        const dbLog = readDB();
+        if (!dbLog.publish_logs) dbLog.publish_logs = [];
+        dbLog.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: "",
+          timestamp: new Date().toISOString(),
+          status: "error",
+          message: `[Meta Webhook Verification] Webhook verification failed (token mismatch). Mode: "${mode}", Token: "${token}", Expected: "${VERIFY_TOKEN}".`,
+          attemptCount: 1
+        });
+        writeDB(dbLog);
+      } catch (e: any) {
+        console.error("[Webhook Log Error] Failed to write verification log:", e.message);
+      }
+
+      return res.sendStatus(403);
+    }
+  }
+
+  // 2. Otherwise, if request is from browser/external and hits pre-prod container, forward to dev container
   if (host.includes("ais-pre-")) {
     const devUrl = `https://${host.replace("ais-pre-", "ais-dev-")}/api/webhook/instagram?hub.mode=${mode || ""}&hub.verify_token=${token || ""}&hub.challenge=${challenge || ""}`;
-    console.log(`[Webhook Forwarding] Forwarding GET verification to dev container: ${devUrl}`);
+    console.log(`[Webhook Forwarding] Forwarding GET verification/request to dev container: ${devUrl}`);
     try {
       const devRes = await fetch(devUrl);
       if (devRes.ok) {
@@ -1792,29 +1839,6 @@ app.get("/api/webhook/instagram", async (req, res) => {
       }
     } catch (err: any) {
       console.error("[Webhook Forwarding Error] Failed to forward GET verification:", err);
-    }
-  }
-
-  // Log incoming verification attempt
-  const dbLog = readDB();
-  if (!dbLog.publish_logs) dbLog.publish_logs = [];
-  dbLog.publish_logs.push({
-    id: "log_" + Math.random().toString(36).substring(2, 11),
-    scheduledPostId: "",
-    timestamp: new Date().toISOString(),
-    status: (mode === "subscribe" && token === VERIFY_TOKEN) ? "success" : "error",
-    message: `[Meta Webhook Verification] GET request received. Mode: "${mode}", Token: "${token}", Challenge: "${challenge}". Expected Token: "${VERIFY_TOKEN}". Status: ${(mode === "subscribe" && token === VERIFY_TOKEN) ? "VERIFIED" : "FAILED_MISMATCH"}`,
-    attemptCount: 1
-  });
-  writeDB(dbLog);
-
-  if (mode && token) {
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      console.log(`[Webhook] Instagram Webhook verified successfully with token: ${VERIFY_TOKEN}`);
-      return res.status(200).send(challenge);
-    } else {
-      console.warn("[Webhook] Instagram Webhook verification failed. Token mismatch.");
-      return res.sendStatus(403);
     }
   }
 
