@@ -130,6 +130,7 @@ interface DB {
     isBotConnected: boolean;
     lastHeartbeat: string | null;
     appPublicUrl?: string;
+    customWebhookUrl?: string;
   };
   currentUser: User | null;
   autoreply_rules?: AutoReplyRule[];
@@ -244,7 +245,8 @@ const DEFAULT_DB: DB = {
     timezone: "UTC",
     isBotConnected: true,
     lastHeartbeat: new Date().toISOString(),
-    appPublicUrl: ""
+    appPublicUrl: "",
+    customWebhookUrl: ""
   },
   currentUser: {
     id: "usr_active",
@@ -349,18 +351,33 @@ function readDB(): DB {
     return inMemoryDB;
   }
   try {
-    if (!fs.existsSync(DB_FILE)) {
+    let parsed: any = null;
+
+    // Support loading the entire database state from an environment variable (crucial for serverless Vercel)
+    if (process.env.POSTS_DB_JSON) {
       try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2), "utf8");
-      } catch (e) {
-        // Fallback to in-memory if write is read-only
-        inMemoryDB = DEFAULT_DB;
-        return inMemoryDB;
+        parsed = JSON.parse(process.env.POSTS_DB_JSON);
+        console.log("[Database] Successfully loaded database state from POSTS_DB_JSON environment variable.");
+      } catch (err: any) {
+        console.error("[Database Error] Failed to parse POSTS_DB_JSON environment variable:", err.message);
       }
-      return DEFAULT_DB;
     }
-    const data = fs.readFileSync(DB_FILE, "utf8");
-    const parsed = JSON.parse(data);
+
+    if (!parsed) {
+      if (!fs.existsSync(DB_FILE)) {
+        try {
+          fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_DB, null, 2), "utf8");
+        } catch (e) {
+          // Fallback to in-memory if write is read-only
+          inMemoryDB = DEFAULT_DB;
+          return inMemoryDB;
+        }
+        parsed = DEFAULT_DB;
+      } else {
+        const data = fs.readFileSync(DB_FILE, "utf8");
+        parsed = JSON.parse(data);
+      }
+    }
     
     // Schema migration / robustness layer to prevent undefined/crashes
     const db: DB = {
@@ -374,6 +391,30 @@ function readDB(): DB {
       autoreply_rules: Array.isArray(parsed.autoreply_rules) ? parsed.autoreply_rules : [...(DEFAULT_DB.autoreply_rules || [])],
       autoreply_messages: Array.isArray(parsed.autoreply_messages) ? parsed.autoreply_messages : [...(DEFAULT_DB.autoreply_messages || [])]
     };
+
+    // Inject direct physical Instagram account details from environment variables if configured
+    if (process.env.INSTAGRAM_ACCESS_TOKEN) {
+      const envToken = process.env.INSTAGRAM_ACCESS_TOKEN.trim();
+      const envBizId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ? process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID.trim() : "";
+      const envUsername = process.env.INSTAGRAM_USERNAME ? process.env.INSTAGRAM_USERNAME.trim().replace("@", "") : "ig_env_account";
+      const envDisplayName = process.env.INSTAGRAM_DISPLAY_NAME ? process.env.INSTAGRAM_DISPLAY_NAME.trim() : "Instagram Env Account";
+
+      const exists = db.instagram_accounts.some(a => a.accessToken === envToken || (envBizId && a.instagramBusinessAccountId === envBizId));
+      if (!exists && envToken.length > 20) {
+        db.instagram_accounts.push({
+          id: "acc_env_" + Math.random().toString(36).substring(2, 9),
+          userId: "usr_active",
+          username: envUsername,
+          displayName: envDisplayName,
+          profilePicture: `https://api.dicebear.com/7.x/identicon/svg?seed=${envUsername}`,
+          accessToken: envToken,
+          isConnected: true,
+          connectedAt: new Date().toISOString(),
+          isReal: true,
+          instagramBusinessAccountId: envBizId
+        });
+      }
+    }
 
     // Migrate scheduled_posts
     if (Array.isArray(parsed.scheduled_posts)) {
@@ -435,6 +476,19 @@ function readDB(): DB {
 }
 
 function writeDB(db: DB) {
+  // Automatically enforce limits on log and message history to keep the database size extremely small (< 15KB)
+  // This prevents environment variable size issues (64KB limits) in serverless deployment environments like Vercel
+  if (Array.isArray(db.publish_logs)) {
+    if (db.publish_logs.length > 20) {
+      db.publish_logs = db.publish_logs.slice(-20);
+    }
+  }
+  if (Array.isArray(db.autoreply_messages)) {
+    if (db.autoreply_messages.length > 15) {
+      db.autoreply_messages = db.autoreply_messages.slice(-15);
+    }
+  }
+
   inMemoryDB = db;
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
@@ -581,8 +635,10 @@ app.post("/api/connect-oauth", (req, res) => {
   // Auto-trigger Webhook subscription for real tokens
   if (isReal && accessToken) {
     const targetUsername = username.replace("@", "").trim();
-    console.log(`[Meta Engine] Auto-triggering webhook subscription for @${targetUsername}...`);
-    const subscribeUrl = `https://graph.facebook.com/v20.0/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,comments,mention&access_token=${accessToken}`;
+    const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
+    const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
+    console.log(`[Meta Engine] Auto-triggering webhook subscription for @${targetUsername} via ${graphHost}...`);
+    const subscribeUrl = `https://${graphHost}/v20.0/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,comments,mentions&access_token=${accessToken}`;
     fetch(subscribeUrl, { method: "POST" })
       .then(async (subRes) => {
         const subData = await subRes.json().catch(() => ({}));
@@ -638,8 +694,10 @@ app.post("/api/instagram/subscribe-webhook", async (req, res) => {
   }
 
   try {
-    console.log(`[Webhook Subscribe] Explicitly subscribing @${acc.username} via graph.facebook.com...`);
-    const subscribeUrl = `https://graph.facebook.com/v20.0/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,comments,mention&access_token=${accessToken}`;
+    const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
+    const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
+    console.log(`[Webhook Subscribe] Explicitly subscribing @${acc.username} via ${graphHost}...`);
+    const subscribeUrl = `https://${graphHost}/v20.0/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,comments,mentions&access_token=${accessToken}`;
     
     const subRes = await fetch(subscribeUrl, { method: "POST" });
     const resData: any = await subRes.json().catch(() => ({}));
@@ -1146,10 +1204,16 @@ app.get("/api/bot/settings", (req, res) => {
 
 app.post("/api/bot/settings", (req, res) => {
   const db = readDB();
-  const { timezone } = req.body;
+  const { timezone, appPublicUrl, customWebhookUrl } = req.body;
 
   if (timezone !== undefined) {
     db.settings.timezone = timezone;
+  }
+  if (appPublicUrl !== undefined) {
+    db.settings.appPublicUrl = appPublicUrl;
+  }
+  if (customWebhookUrl !== undefined) {
+    db.settings.customWebhookUrl = customWebhookUrl;
   }
 
   writeDB(db);
@@ -1589,6 +1653,51 @@ app.post("/api/webhook/instagram", async (req, res) => {
   // Verify this is a subscription update from page/instagram
   if (body.object === "instagram" || body.object === "page") {
     console.log("[Webhook] Received incoming Meta event:", JSON.stringify(body, null, 2));
+
+    // Forward the webhook payload to custom webhook URL if enabled/configured (e.g. Vercel deployment)
+    if (dbLog.settings?.customWebhookUrl) {
+      const forwardUrl = dbLog.settings.customWebhookUrl.trim();
+      if (forwardUrl.startsWith("http")) {
+        console.log(`[Webhook] Forwarding webhook payload to custom webhook URL: ${forwardUrl}`);
+        fetch(forwardUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(req.headers["x-hub-signature-256"] ? { "x-hub-signature-256": req.headers["x-hub-signature-256"] as string } : {}),
+            ...(req.headers["x-hub-signature"] ? { "x-hub-signature": req.headers["x-hub-signature"] as string } : {})
+          },
+          body: JSON.stringify(body)
+        }).then(async (forwardRes) => {
+          const text = await forwardRes.text();
+          console.log(`[Webhook] Forwarding to ${forwardUrl} completed with status ${forwardRes.status}. Response:`, text.substring(0, 200));
+          
+          const dbLogUpdate = readDB();
+          if (!dbLogUpdate.publish_logs) dbLogUpdate.publish_logs = [];
+          dbLogUpdate.publish_logs.push({
+            id: "log_" + Math.random().toString(36).substring(2, 11),
+            scheduledPostId: "",
+            timestamp: new Date().toISOString(),
+            status: forwardRes.ok ? "success" : "info",
+            message: `[Webhook Forwarding] Forwarded event to custom URL. Status: ${forwardRes.status}. Response: ${text.substring(0, 150)}`,
+            attemptCount: 1
+          });
+          writeDB(dbLogUpdate);
+        }).catch((err) => {
+          console.error(`[Webhook] Failed to forward payload to ${forwardUrl}:`, err);
+          const dbLogUpdate = readDB();
+          if (!dbLogUpdate.publish_logs) dbLogUpdate.publish_logs = [];
+          dbLogUpdate.publish_logs.push({
+            id: "log_" + Math.random().toString(36).substring(2, 11),
+            scheduledPostId: "",
+            timestamp: new Date().toISOString(),
+            status: "error",
+            message: `[Webhook Forwarding Error] Failed to forward to custom URL: ${err.message || err}`,
+            attemptCount: 1
+          });
+          writeDB(dbLogUpdate);
+        });
+      }
+    }
 
     try {
       const db = readDB();

@@ -39,6 +39,12 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
   const [subscribing, setSubscribing] = useState(false);
   const [subscribeResult, setSubscribeResult] = useState<{ success?: boolean; error?: string; message?: string } | null>(null);
 
+  // Custom Webhook URL States
+  const [customWebhookUrl, setCustomWebhookUrl] = useState("");
+  const [isCustomWebhookEnabled, setIsCustomWebhookEnabled] = useState(false);
+  const [isSavingCustomWebhook, setIsSavingCustomWebhook] = useState(false);
+  const [customWebhookInput, setCustomWebhookInput] = useState("");
+
   const handleRegisterWebhook = async (accountId: string) => {
     setSubscribing(true);
     setSubscribeResult(null);
@@ -109,6 +115,10 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
       if (settingsRes.ok && isJson(settingsRes)) {
         const settings = await settingsRes.json();
         setAppPublicUrl(settings.appPublicUrl || window.location.origin);
+        const cUrl = settings.customWebhookUrl || "";
+        setCustomWebhookUrl(cUrl);
+        setCustomWebhookInput(cUrl);
+        setIsCustomWebhookEnabled(!!cUrl);
       } else {
         setAppPublicUrl(window.location.origin);
       }
@@ -128,6 +138,30 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
     const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Save custom webhook configuration
+  const handleSaveCustomWebhook = async (enabled: boolean, value: string) => {
+    setIsSavingCustomWebhook(true);
+    try {
+      const urlToSave = enabled ? value.trim() : "";
+      const res = await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customWebhookUrl: urlToSave })
+      });
+      if (res.ok) {
+        const settings = await res.json();
+        const updatedUrl = settings.customWebhookUrl || "";
+        setCustomWebhookUrl(updatedUrl);
+        setCustomWebhookInput(updatedUrl);
+        setIsCustomWebhookEnabled(!!updatedUrl);
+      }
+    } catch (err) {
+      console.error("Failed to save custom webhook settings:", err);
+    } finally {
+      setIsSavingCustomWebhook(false);
+    }
+  };
 
   // Toggle Rule Status
   const handleToggleRule = async (rule: AutoReplyRule) => {
@@ -788,34 +822,94 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                 </div>
 
                 {/* Callback URL */}
-                <div className="space-y-1.5">
-                  <label className="block text-[9px] font-mono uppercase tracking-wider text-stone-500">
-                    Webhook Callback URL
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={`${(appPublicUrl || "").replace("ais-dev-", "ais-pre-")}/api/webhook/instagram`}
-                      className="flex-1 bg-stone-50 border border-[#e3ded5] rounded-lg px-3 py-2 text-xs text-stone-700 font-mono focus:outline-none"
-                    />
-                    <button
-                      onClick={() => {
-                        const publicUrl = `${(appPublicUrl || "").replace("ais-dev-", "ais-pre-")}/api/webhook/instagram`;
-                        navigator.clipboard.writeText(publicUrl);
-                        setCopiedField("callback");
-                        setTimeout(() => setCopiedField(null), 2500);
-                      }}
-                      className="p-2.5 bg-[#f5f3ef] hover:bg-[#eadecc] rounded-lg border border-[#e3ded5] text-stone-600 transition flex items-center justify-center cursor-pointer"
-                      title="Copy URL"
-                    >
-                      {copiedField === "callback" ? (
-                        <Check size={14} className="text-emerald-600" />
-                      ) : (
-                        <Copy size={14} />
-                      )}
-                    </button>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[9px] font-mono uppercase tracking-wider text-stone-500">
+                      Webhook Callback URL
+                    </label>
+                    <label className="flex items-center space-x-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isCustomWebhookEnabled}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setIsCustomWebhookEnabled(checked);
+                          if (!checked) {
+                            handleSaveCustomWebhook(false, "");
+                          }
+                        }}
+                        className="rounded border-[#e3ded5] text-[#bca280] focus:ring-[#bca280] w-3 h-3 cursor-pointer"
+                      />
+                      <span className="text-[10px] font-sans text-stone-600">Customize</span>
+                    </label>
                   </div>
+
+                  {isCustomWebhookEnabled ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={customWebhookInput}
+                          onChange={(e) => setCustomWebhookInput(e.target.value)}
+                          placeholder="e.g. https://your-domain.vercel.app/api/webhook/instagram"
+                          className="flex-1 bg-stone-50 border border-[#e3ded5] rounded-lg px-3 py-2 text-xs text-stone-700 font-mono focus:outline-none focus:border-[#bca280] focus:ring-1 focus:ring-[#bca280]"
+                        />
+                        <button
+                          onClick={() => handleSaveCustomWebhook(true, customWebhookInput)}
+                          disabled={isSavingCustomWebhook}
+                          className="px-3 py-2 bg-[#bca280] text-white hover:bg-[#a68c6a] rounded-lg text-xs font-medium transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingCustomWebhook ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                      {customWebhookUrl && (
+                        <div className="flex items-center justify-between bg-[#f5f3ef] border border-[#e3ded5] rounded-lg px-3 py-1.5 text-[11px] text-stone-600">
+                          <span className="font-mono truncate mr-2">{customWebhookUrl}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(customWebhookUrl);
+                              setCopiedField("callback");
+                              setTimeout(() => setCopiedField(null), 2500);
+                            }}
+                            className="text-stone-500 hover:text-stone-700 font-medium shrink-0 flex items-center space-x-1"
+                            title="Copy Custom URL"
+                          >
+                            {copiedField === "callback" ? (
+                              <Check size={12} className="text-emerald-600" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                            <span>{copiedField === "callback" ? "Copied" : "Copy"}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${(appPublicUrl || "").replace("ais-dev-", "ais-pre-")}/api/webhook/instagram`}
+                        className="flex-1 bg-stone-50 border border-[#e3ded5] rounded-lg px-3 py-2 text-xs text-stone-700 font-mono focus:outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          const publicUrl = `${(appPublicUrl || "").replace("ais-dev-", "ais-pre-")}/api/webhook/instagram`;
+                          navigator.clipboard.writeText(publicUrl);
+                          setCopiedField("callback");
+                          setTimeout(() => setCopiedField(null), 2500);
+                        }}
+                        className="p-2.5 bg-[#f5f3ef] hover:bg-[#eadecc] rounded-lg border border-[#e3ded5] text-stone-600 transition flex items-center justify-center cursor-pointer"
+                        title="Copy URL"
+                      >
+                        {copiedField === "callback" ? (
+                          <Check size={14} className="text-emerald-600" />
+                        ) : (
+                          <Copy size={14} />
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Verify Token */}
