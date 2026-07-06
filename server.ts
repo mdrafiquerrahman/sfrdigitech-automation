@@ -5,8 +5,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _filename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : (typeof __filename !== "undefined" ? __filename : "");
+const _dirname = typeof import.meta !== "undefined" && import.meta.url ? path.dirname(_filename) : (typeof __dirname !== "undefined" ? __dirname : "");
 
 dotenv.config();
 
@@ -319,9 +319,9 @@ let inMemoryDB: DB | null = null;
 let templateDbPath = DB_FILE;
 if (!fs.existsSync(templateDbPath)) {
   const possiblePaths = [
-    path.join(__dirname, "posts_db.json"),
-    path.join(__dirname, "../posts_db.json"),
-    path.join(__dirname, "../../posts_db.json")
+    path.join(_dirname, "posts_db.json"),
+    path.join(_dirname, "../posts_db.json"),
+    path.join(_dirname, "../../posts_db.json")
   ];
   for (const p of possiblePaths) {
     if (fs.existsSync(p)) {
