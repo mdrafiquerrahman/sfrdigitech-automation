@@ -73,6 +73,9 @@ export default function InstagramPreview({ post, username = "instagram_creator" 
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
             className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
+            }}
           />
         </AnimatePresence>
 
@@ -161,6 +164,9 @@ export default function InstagramPreview({ post, username = "instagram_creator" 
           src={activeMedia[0]}
           alt="Reel content"
           className="w-full h-full object-cover brightness-[0.75]"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
       </div>

@@ -38,7 +38,26 @@ const getMockDB = () => {
   const existing = localStorage.getItem("sfr_mock_db");
   if (existing) {
     try {
-      return JSON.parse(existing);
+      const parsed = JSON.parse(existing);
+      // Automatically migrate if using old property names or missing key fields
+      let needsReset = false;
+      if (parsed.scheduled_posts && parsed.scheduled_posts.length > 0) {
+        const first = parsed.scheduled_posts[0];
+        if (first.scheduledTime !== undefined && first.scheduledFor === undefined) {
+          needsReset = true;
+        }
+        if (first.instagramAccountUsername === undefined) {
+          needsReset = true;
+        }
+      }
+      if (!needsReset && parsed.instagram_accounts && parsed.instagram_accounts.length > 0) {
+        if (parsed.instagram_accounts[0].profilePicture === undefined) {
+          needsReset = true;
+        }
+      }
+      if (!needsReset) {
+        return parsed;
+      }
     } catch (e) {}
   }
   
@@ -53,8 +72,13 @@ const getMockDB = () => {
         username: "editorial.aesthetic",
         displayName: "Editorial Aesthetic 🏺",
         accessToken: "EA_MOCK_ACCESS_TOKEN_XYZ123",
-        profilePictureUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        createdAt: "2026-07-05T14:41:21.070Z"
+        profilePicture: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+        isConnected: true,
+        connectedAt: "2026-07-05T14:41:21.070Z",
+        isReal: false,
+        instagramBusinessAccountId: "17841405765924832",
+        enableContentIG: true,
+        enableMessageEA: true
       },
       {
         id: "acc_minimalist",
@@ -62,36 +86,41 @@ const getMockDB = () => {
         username: "minimalist.curations",
         displayName: "Minimalist Curations 🪵",
         accessToken: "MC_MOCK_ACCESS_TOKEN_ABC789",
-        profilePictureUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
-        createdAt: "2026-07-06T10:15:30.000Z"
+        profilePicture: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+        isConnected: true,
+        connectedAt: "2026-07-06T10:15:30.000Z",
+        isReal: false,
+        instagramBusinessAccountId: "17841405765924833",
+        enableContentIG: true,
+        enableMessageEA: true
       }
     ],
     media: [
       {
         id: "med_1",
         userId: "usr_active",
-        suggestedName: "linen_drape_curator",
-        mediaUrl: "https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800&auto=format&fit=crop&q=80",
-        mediaType: "IMAGE",
-        mimeType: "image/jpeg",
+        name: "linen_drape_curator",
+        url: "https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800&auto=format&fit=crop&q=80",
+        type: "image",
+        size: "124 KB",
         createdAt: "2026-07-05T14:41:21.070Z"
       },
       {
         id: "med_2",
         userId: "usr_active",
-        suggestedName: "clay_vessel_minimal",
-        mediaUrl: "https://images.unsplash.com/photo-1612196808214-b8e1d6145a8c?w=800&auto=format&fit=crop&q=80",
-        mediaType: "IMAGE",
-        mimeType: "image/jpeg",
+        name: "clay_vessel_minimal",
+        url: "https://images.unsplash.com/photo-1612196808214-b8e1d6145a8c?w=800&auto=format&fit=crop&q=80",
+        type: "image",
+        size: "98 KB",
         createdAt: "2026-07-06T09:30:15.000Z"
       },
       {
         id: "med_3",
         userId: "usr_active",
-        suggestedName: "scandic_lounge_soft",
-        mediaUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&auto=format&fit=crop&q=80",
-        mediaType: "IMAGE",
-        mimeType: "image/jpeg",
+        name: "scandic_lounge_soft",
+        url: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&auto=format&fit=crop&q=80",
+        type: "image",
+        size: "142 KB",
         createdAt: "2026-07-07T12:00:00.000Z"
       }
     ],
@@ -100,20 +129,28 @@ const getMockDB = () => {
         id: "post_1",
         userId: "usr_active",
         instagramAccountId: "acc_editorial",
+        instagramAccountUsername: "editorial.aesthetic",
+        type: "photo",
         caption: "A quiet space for contemplation. Let the morning light linger on the clay and the cloth. ✨☕️\n\n#slowliving #warmminimalism #aesthetic",
+        mediaAssetIds: ["med_1"],
         mediaUrls: ["https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800&auto=format&fit=crop&q=80"],
-        scheduledTime: new Date(Date.now() + 3600000 * 2).toISOString(),
-        status: "scheduled",
+        scheduledFor: new Date(Date.now() + 3600000 * 2).toISOString(),
+        status: "pending",
+        timezone: "UTC",
         createdAt: "2026-07-08T15:20:00.000Z"
       },
       {
         id: "post_2",
         userId: "usr_active",
         instagramAccountId: "acc_minimalist",
+        instagramAccountUsername: "minimalist.curations",
+        type: "photo",
         caption: "Raw textures and pure forms. Curation is the art of subtraction.\n\n#designphilosophy #interiorstyling #architecture",
+        mediaAssetIds: ["med_2"],
         mediaUrls: ["https://images.unsplash.com/photo-1612196808214-b8e1d6145a8c?w=800&auto=format&fit=crop&q=80"],
-        scheduledTime: new Date(Date.now() - 3600000 * 5).toISOString(),
-        status: "published",
+        scheduledFor: new Date(Date.now() - 3600000 * 5).toISOString(),
+        status: "completed",
+        timezone: "UTC",
         createdAt: "2026-07-08T10:00:00.000Z"
       }
     ],
@@ -221,8 +258,9 @@ const mockFetch = async (url: string, options: any = {}) => {
       username: body.username || "custom_curator",
       displayName: (body.username || "Custom Curator") + " ✨",
       accessToken: "MOCK_TOKEN_" + Math.random().toString(36).toUpperCase().substring(2, 11),
-      profilePictureUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-      createdAt: new Date().toISOString()
+      profilePicture: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      isConnected: true,
+      connectedAt: new Date().toISOString()
     };
     db.instagram_accounts.push(newAccount);
     save(db);
@@ -240,10 +278,10 @@ const mockFetch = async (url: string, options: any = {}) => {
     const newAsset = {
       id: "med_" + Math.random().toString(36).substring(2, 11),
       userId: "usr_active",
-      suggestedName: body?.suggestedName || "uploaded_mood",
-      mediaUrl: body?.mediaUrl || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
-      mediaType: body?.mediaType || "IMAGE",
-      mimeType: body?.mimeType || "image/jpeg",
+      name: body?.suggestedName || "uploaded_mood",
+      url: body?.mediaUrl || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
+      type: "image",
+      size: "115 KB",
       createdAt: new Date().toISOString()
     };
     db.media.push(newAsset);
@@ -251,26 +289,72 @@ const mockFetch = async (url: string, options: any = {}) => {
     data = newAsset;
   } else if (path === "/api/posts") {
     if (method === "GET") {
-      data = { posts: db.scheduled_posts };
+      const params = new URL(url, window.location.origin).searchParams;
+      const filterStatus = params.get("status");
+      const search = params.get("search");
+      const accountId = params.get("accountId");
+      const pageStr = params.get("page") || "1";
+      const limitStr = params.get("limit") || "10";
+
+      let filtered = [...db.scheduled_posts];
+
+      if (filterStatus && filterStatus !== "all") {
+        filtered = filtered.filter((p: any) => p.status === filterStatus);
+      }
+
+      if (search && search.trim() !== "") {
+        const q = search.toLowerCase();
+        filtered = filtered.filter((p: any) => p.caption.toLowerCase().includes(q));
+      }
+
+      if (accountId && accountId !== "all") {
+        filtered = filtered.filter((p: any) => p.instagramAccountId === accountId);
+      }
+
+      // Sort by scheduledFor descending
+      filtered.sort((a: any, b: any) => new Date(b.scheduledFor).getTime() - new Date(a.scheduledFor).getTime());
+
+      const page = parseInt(pageStr) || 1;
+      const limit = parseInt(limitStr) || 10;
+      const totalItems = filtered.length;
+      const totalPages = Math.ceil(totalItems / limit) || 1;
+      const startIndex = (page - 1) * limit;
+      const paginated = filtered.slice(startIndex, startIndex + limit);
+
+      data = {
+        posts: paginated,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalItems,
+          limit
+        }
+      };
     } else if (method === "POST") {
+      const account = db.instagram_accounts.find((a: any) => a.id === body.instagramAccountId) || db.instagram_accounts[0];
       const newPost = {
         id: "post_" + Math.random().toString(36).substring(2, 11),
         userId: "usr_active",
-        instagramAccountId: body.instagramAccountId || db.instagram_accounts[0]?.id || "acc_editorial",
+        instagramAccountId: account?.id || "acc_editorial",
+        instagramAccountUsername: account?.username || "editorial.aesthetic",
+        type: body.type || "photo",
         caption: body.caption,
+        mediaAssetIds: body.mediaAssetIds || [],
         mediaUrls: body.mediaUrls || [],
-        scheduledTime: body.scheduledFor,
-        status: "scheduled",
+        scheduledFor: body.scheduledFor || new Date().toISOString(),
+        status: "pending",
+        timezone: body.timezone || "UTC",
         createdAt: new Date().toISOString()
       };
-      db.scheduled_posts.push(newPost);
+      db.scheduled_posts.unshift(newPost);
       
       db.publish_logs.unshift({
         id: "log_" + Math.random().toString(36).substring(2, 11),
-        userId: "usr_active",
-        logType: "info",
-        message: `Successfully scheduled new post to @${db.instagram_accounts.find((a: any) => a.id === newPost.instagramAccountId)?.username || "account"}`,
-        createdAt: new Date().toISOString()
+        scheduledPostId: newPost.id,
+        timestamp: new Date().toISOString(),
+        status: "info",
+        message: `Scheduled ${newPost.type.toUpperCase()} post to release on @${newPost.instagramAccountUsername} at ${new Date(newPost.scheduledFor).toLocaleString()}.`,
+        attemptCount: 1
       });
 
       save(db);
@@ -290,11 +374,11 @@ const mockFetch = async (url: string, options: any = {}) => {
           ...pToDup,
           id: "post_" + Math.random().toString(36).substring(2, 11),
           caption: pToDup.caption + " (Copy)",
-          scheduledTime: new Date(Date.now() + 3600000 * 24).toISOString(),
-          status: "scheduled",
+          scheduledFor: new Date(Date.now() + 3600000 * 24).toISOString(),
+          status: "pending",
           createdAt: new Date().toISOString()
         };
-        db.scheduled_posts.push(dup);
+        db.scheduled_posts.unshift(dup);
         save(db);
         data = dup;
       } else {

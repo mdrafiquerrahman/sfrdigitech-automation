@@ -328,7 +328,14 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
               <div className="grid grid-cols-5 gap-2 pt-1">
                 {mediaUrls.map((url, index) => (
                   <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-[#27272a] group bg-black/50">
-                    <img src={url} alt={`Selection ${index}`} className="w-full h-full object-cover" />
+                    <img 
+                      src={url} 
+                      alt={`Selection ${index}`} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
+                      }}
+                    />
                     <button
                       type="button"
                       onClick={(e) => {
@@ -364,6 +371,9 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
                       onClick={() => handleSelectFromLibrary(asset)}
                       className="w-full h-full rounded-lg object-cover border border-[#27272a] hover:border-[#E1306C] cursor-pointer transition"
                       title={asset.name}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
+                      }}
                     />
                     <button
                       type="button"

@@ -278,8 +278,15 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
               >
                 {/* Media thumbnail card */}
                 <div className="w-24 h-24 rounded-lg overflow-hidden border border-[#27272a] bg-black shrink-0 relative">
-                  <img src={post.mediaUrls[0]} alt="Thumbnail" className="w-full h-full object-cover" />
-                  {post.mediaUrls.length > 1 && (
+                  <img 
+                    src={post.mediaUrls && post.mediaUrls.length > 0 ? post.mediaUrls[0] : "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60"} 
+                    alt="Thumbnail" 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
+                    }}
+                  />
+                  {post.mediaUrls && post.mediaUrls.length > 1 && (
                     <div className="absolute top-1 right-1 bg-black/85 text-white text-[8px] font-mono px-1.5 py-0.5 rounded-md border border-zinc-800">
                       +{post.mediaUrls.length - 1} slider
                     </div>
@@ -293,8 +300,8 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center space-x-2">
-                      <span className="text-xs font-black text-white">@{post.instagramAccountUsername}</span>
-                      <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">({post.type})</span>
+                      <span className="text-xs font-black text-white">@{post.instagramAccountUsername || "instagram_creator"}</span>
+                      <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">({post.type || "photo"})</span>
                     </div>
                     <div>{getStatusBadge(post.status)}</div>
                   </div>
@@ -342,7 +349,7 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
                       <div className="flex flex-wrap items-center text-[10px] text-zinc-500 font-mono pt-1 gap-x-4 gap-y-1">
                         <span className="flex items-center space-x-1">
                           <Clock size={11} className="text-zinc-600" />
-                          <span>Release: {new Date(post.scheduledFor).toLocaleString()} ({post.timezone})</span>
+                          <span>Release: {post.scheduledFor ? new Date(post.scheduledFor).toLocaleString() : "TBD"} ({post.timezone || "UTC"})</span>
                         </span>
                         {post.instagramId && (
                           <span className="flex items-center space-x-1 text-emerald-450 font-bold">

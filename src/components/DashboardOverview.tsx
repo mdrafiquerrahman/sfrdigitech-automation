@@ -278,6 +278,9 @@ export default function DashboardOverview({
                         src={acc.profilePicture} 
                         alt={acc.username} 
                         className="w-8 h-8 rounded-full object-cover border border-zinc-800" 
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = `https://api.dicebear.com/7.x/identicon/svg?seed=${acc.username}`;
+                        }}
                       />
                       <div>
                         <div className="text-xs font-bold text-white">@{acc.username}</div>

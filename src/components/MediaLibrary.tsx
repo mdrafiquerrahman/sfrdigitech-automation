@@ -138,7 +138,14 @@ export default function MediaLibrary({ media, onUploadSuccess }: MediaLibraryPro
                 className="group relative aspect-square bg-[#09090b] border border-[#27272a] hover:border-zinc-700 rounded-xl overflow-hidden shadow-sm transition flex flex-col justify-end"
               >
                 {/* Media representation */}
-                <img src={asset.url} alt={asset.name} className="absolute inset-0 w-full h-full object-cover transition duration-300 group-hover:scale-105" />
+                <img 
+                  src={asset.url} 
+                  alt={asset.name} 
+                  className="absolute inset-0 w-full h-full object-cover transition duration-300 group-hover:scale-105" 
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=60";
+                  }}
+                />
 
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-80 group-hover:opacity-95 transition" />
 
