@@ -24,47 +24,8 @@ app.use("/uploads", express.static(uploadsDir));
 
 // Helper to save base64 data to local file in uploads folder
 function saveBase64File(base64Str: string, suggestedName: string): string {
-  if (!base64Str || !base64Str.startsWith("data:")) {
-    return base64Str; // Already a URL or normal path
-  }
-
-  try {
-    const commaIndex = base64Str.indexOf(",");
-    if (commaIndex === -1) {
-      return base64Str;
-    }
-
-    const header = base64Str.substring(0, commaIndex);
-    const base64Data = base64Str.substring(commaIndex + 1);
-
-    const semiIndex = header.indexOf(";");
-    if (semiIndex === -1) {
-      return base64Str;
-    }
-
-    const mimeType = header.substring(5, semiIndex); // skip "data:"
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    // Determine extension
-    let ext = "bin";
-    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
-    else if (mimeType.includes("png")) ext = "png";
-    else if (mimeType.includes("gif")) ext = "gif";
-    else if (mimeType.includes("mp4")) ext = "mp4";
-    else if (mimeType.includes("quicktime")) ext = "mov";
-    else if (mimeType.includes("svg")) ext = "svg";
-    else if (mimeType.includes("webp")) ext = "webp";
-
-    const fileName = `${suggestedName.replace(/[^a-zA-Z0-9_-]/g, "_")}_${Math.random().toString(36).substring(2, 11)}.${ext}`;
-    const filePath = path.join(uploadsDir, fileName);
-
-    fs.writeFileSync(filePath, buffer);
-    console.log(`[File System] Saved base64 file to ${filePath}`);
-    return `/uploads/${fileName}`;
-  } catch (err) {
-    console.error("[File System] Error saving base64 file:", err);
-    return base64Str;
-  }
+  // Keep as original Base64 string so that uploads are persistent across serverless/ephemeral container recycles
+  return base64Str;
 }
 
 // Increase body size limits for media uploads
@@ -90,6 +51,15 @@ app.use((req, res, next) => {
   } catch (err) {
     // Fail silently to avoid interrupting requests
   }
+  next();
+});
+
+// Fire-and-forget serverless scheduler trigger on every request
+app.use((req, res, next) => {
+  // We execute it asynchronously so we don't delay the HTTP response
+  executeSchedulerTick(false).catch((err) => {
+    console.error("[Serverless Middleware Error] Scheduler tick failure:", err);
+  });
   next();
 });
 
@@ -464,41 +434,6 @@ function readDB(): DB {
       } else {
         const data = fs.readFileSync(DB_FILE, "utf8");
         parsed = JSON.parse(data);
-
-        // Migrate base64 to local physical files
-        let hasMigrated = false;
-        if (parsed && Array.isArray(parsed.media)) {
-          parsed.media = parsed.media.map((m: any) => {
-            if (m && m.url && m.url.startsWith("data:")) {
-              m.url = saveBase64File(m.url, m.id || "media");
-              hasMigrated = true;
-            }
-            return m;
-          });
-        }
-        if (parsed && Array.isArray(parsed.scheduled_posts)) {
-          parsed.scheduled_posts = parsed.scheduled_posts.map((p: any) => {
-            if (p && Array.isArray(p.mediaUrls)) {
-              p.mediaUrls = p.mediaUrls.map((u: any, i: number) => {
-                if (u && u.startsWith("data:")) {
-                  const newUrl = saveBase64File(u, `${p.id || "post"}_${i}`);
-                  hasMigrated = true;
-                  return newUrl;
-                }
-                return u;
-              });
-            }
-            return p;
-          });
-        }
-        if (hasMigrated) {
-          try {
-            fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), "utf8");
-            console.log("[Migration] Successfully migrated large base64 media to local physical files inside /uploads folder!");
-          } catch (e) {
-            console.error("[Migration Error] Failed to write migrated DB back to disk:", e);
-          }
-        }
       }
     }
     
@@ -987,6 +922,12 @@ app.get("/api/media-public/:id", async (req, res) => {
     if (matches && matches.length === 3) {
       const contentType = matches[1];
       const buffer = Buffer.from(matches[2], "base64");
+
+      // Serve videos directly
+      if (contentType.startsWith("video/")) {
+        res.setHeader("Content-Type", contentType);
+        return res.send(buffer);
+      }
 
       // If it's already a JPEG, serve it directly to avoid unnecessary conversion
       if (contentType === "image/jpeg" || contentType === "image/jpg") {
@@ -2670,6 +2611,212 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
     writeDB(dbErr);
     
     return originalUrl;
+  }
+}
+
+// --- SERVERLESS SCHEDULER TICK FOR VERCEL ---
+let lastTickTime = 0;
+let isSchedulerChecking = false;
+
+async function executeSchedulerTick(isForce = false) {
+  if (isSchedulerChecking) return;
+  const nowTime = Date.now();
+  // Rate-limit checking to at most once every 5 seconds per request
+  if (!isForce && nowTime - lastTickTime < 5000) {
+    return;
+  }
+  isSchedulerChecking = true;
+  lastTickTime = nowTime;
+
+  try {
+    const db = readDB();
+    if (!db || !Array.isArray(db.scheduled_posts)) {
+      isSchedulerChecking = false;
+      return;
+    }
+
+    const now = new Date();
+    const duePosts = db.scheduled_posts.filter(
+      (p) => p.status === "pending" && new Date(p.scheduledFor) <= now
+    );
+
+    if (duePosts.length === 0) {
+      isSchedulerChecking = false;
+      return;
+    }
+
+    console.log(`[Serverless Scheduler] Found ${duePosts.length} pending posts due for release.`);
+    
+    if (!Array.isArray(db.instagram_accounts)) {
+      db.instagram_accounts = [];
+    }
+    if (!Array.isArray(db.publish_logs)) {
+      db.publish_logs = [];
+    }
+
+    let dbChanged = false;
+
+    for (const post of duePosts) {
+      const account = db.instagram_accounts.find((a) => a.id === post.instagramAccountId);
+
+      if (!account || !account.isConnected) {
+        post.status = "failed";
+        post.error = "Instagram Account has been unlinked or lacks active permissions.";
+        db.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "error",
+          message: `[Serverless Engine] Posting Failed for ID ${post.id}: Connected Instagram OAuth node was unlinked.`,
+          attemptCount: 1
+        });
+        dbChanged = true;
+        continue;
+      }
+
+      if (account.enableContentIG === false) {
+        post.status = "failed";
+        post.error = "Instagram Content Publishing (Content IG) option is disabled in Settings for this profile.";
+        db.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "warning",
+          message: `[Serverless Engine] Posting skipped for ID ${post.id}: Content IG option is disabled for @${account.username}.`,
+          attemptCount: 1
+        });
+        dbChanged = true;
+        continue;
+      }
+
+      if (account.isReal) {
+        // Run Real Meta Publish asynchronously
+        post.status = "publishing";
+        dbChanged = true;
+
+        db.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "info",
+          message: `[Serverless Meta Engine] Detected pending real publication (ID: ${post.id}). Preparing content URLs...`,
+          attemptCount: 1
+        });
+
+        // Fire-and-forget real publish call
+        (async () => {
+          try {
+            const isInstagramLoginToken = account.accessToken.trim().toUpperCase().startsWith("IGAA");
+            const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
+
+            const pollContainerStatus = async (containerId: string, accessToken: string): Promise<boolean> => {
+              for (let i = 0; i < 15; i++) {
+                try {
+                  const statusRes = await fetch(
+                    `https://${graphHost}/v20.0/${containerId}?fields=status_code,status,error&access_token=${accessToken}`
+                  );
+                  if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+                    if (statusData.status_code === "FINISHED") return true;
+                    if (statusData.status_code === "ERROR" || statusData.error) {
+                      throw new Error(statusData.error?.message || statusData.status_code);
+                    }
+                  }
+                } catch (e) {
+                  console.error("[Container Status Check Error]:", e);
+                }
+                await new Promise((r) => setTimeout(r, 4000));
+              }
+              return false;
+            };
+
+            const mediaUrl = post.mediaUrls[0];
+            const containerRes = await fetch(
+              `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media?image_url=${encodeURIComponent(mediaUrl)}&caption=${encodeURIComponent(post.caption)}&access_token=${account.accessToken}`,
+              { method: "POST" }
+            );
+
+            const containerData = await containerRes.json();
+            if (!containerRes.ok || !containerData.id) {
+              throw new Error(containerData.error?.message || "Failed to create media container.");
+            }
+
+            const isFinished = await pollContainerStatus(containerData.id, account.accessToken);
+            if (!isFinished) throw new Error("Timeout waiting for container processing.");
+
+            const publishRes = await fetch(
+              `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media_publish?creation_id=${containerData.id}&access_token=${account.accessToken}`,
+              { method: "POST" }
+            );
+
+            const publishData = await publishRes.json();
+            if (!publishRes.ok || !publishData.id) {
+              throw new Error(publishData.error?.message || "Failed to publish container.");
+            }
+
+            const currentDb = readDB();
+            const activePost = currentDb.scheduled_posts.find((p) => p.id === post.id);
+            if (activePost) {
+              activePost.status = "completed";
+              activePost.postedAt = new Date().toISOString();
+              activePost.instagramId = publishData.id;
+
+              currentDb.publish_logs.push({
+                id: "log_" + Math.random().toString(36).substring(2, 11),
+                scheduledPostId: post.id,
+                timestamp: new Date().toISOString(),
+                status: "success",
+                message: `[Serverless Meta Engine] Published to live Feed successfully! Instagram Post ID: ${publishData.id}`,
+                attemptCount: 1
+              });
+              writeDB(currentDb);
+            }
+          } catch (err: any) {
+            console.error("[Serverless Meta Engine Error] Real publish failed:", err.message);
+            const currentDb = readDB();
+            const activePost = currentDb.scheduled_posts.find((p) => p.id === post.id);
+            if (activePost) {
+              activePost.status = "failed";
+              activePost.error = err.message;
+              currentDb.publish_logs.push({
+                id: "log_" + Math.random().toString(36).substring(2, 11),
+                scheduledPostId: post.id,
+                timestamp: new Date().toISOString(),
+                status: "error",
+                message: `[Serverless Meta Engine Error] Real publication failed: ${err.message}`,
+                attemptCount: 1
+              });
+              writeDB(currentDb);
+            }
+          }
+        })();
+
+      } else {
+        // Run Simulated Publish
+        post.status = "completed";
+        post.postedAt = new Date().toISOString();
+        const generatedIgId = "ig_post_" + Math.random().toString(36).substring(2, 11);
+        post.instagramId = generatedIgId;
+
+        db.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "success",
+          message: `[Serverless Engine] Published post to @${account.username} (Instagram Post ID: ${generatedIgId})`,
+          attemptCount: 1
+        });
+        dbChanged = true;
+      }
+    }
+
+    if (dbChanged) {
+      writeDB(db);
+    }
+  } catch (err) {
+    console.error("Serverless scheduler tick error:", err);
+  } finally {
+    isSchedulerChecking = false;
   }
 }
 
