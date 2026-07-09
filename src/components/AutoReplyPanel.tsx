@@ -32,16 +32,49 @@ interface AutoReplyPanelProps {
 }
 
 export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"rules" | "simulator" | "leads" | "integration">("rules");
+  const [activeSubTab, setActiveSubTab] = useState<"rules" | "simulator" | "leads" | "integration" | "diagnostics">("rules");
   const [rules, setRules] = useState<AutoReplyRule[]>([]);
   const [messages, setMessages] = useState<InstagramMessage[]>([]);
   const [leads, setLeads] = useState<CapturedLead[]>([]);
   const [loading, setLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [loadingLeads, setLoadingLeads] = useState(false);
+
+  // Live Diagnostics States
+  const [diagnostics, setDiagnostics] = useState<{
+    lastWebhookPayload: any;
+    lastIncomingMessage: any;
+    lastReplyAttempt: any;
+    lastMetaApiError: any;
+    lastGeminiApiError?: any;
+    settings: any;
+    accounts: any[];
+  } | null>(null);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+
+  const fetchDiagnostics = async () => {
+    setLoadingDiagnostics(true);
+    try {
+      const res = await fetch("/api/bot/diagnostics");
+      if (res.ok && isJson(res)) {
+        setDiagnostics(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch diagnostics:", err);
+    } finally {
+      setLoadingDiagnostics(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab === "diagnostics") {
+      fetchDiagnostics();
+    }
+  }, [activeSubTab]);
   
   // Real integration metadata
   const [appPublicUrl, setAppPublicUrl] = useState("");
+  const [verifyToken, setVerifyToken] = useState("meta_verify_token_example_123");
   const [copiedField, setCopiedField] = useState<"callback" | "token" | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [subscribeResult, setSubscribeResult] = useState<{ success?: boolean; error?: string; message?: string } | null>(null);
@@ -158,6 +191,9 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         setIsCustomWebhookEnabled(!!cUrl);
         if (settings.manychatBranding !== undefined) {
           setManychatBranding(!!settings.manychatBranding);
+        }
+        if (settings.verifyToken) {
+          setVerifyToken(settings.verifyToken);
         }
       } else {
         setAppPublicUrl(window.location.origin);
@@ -505,12 +541,24 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
         >
           Real Webhook Guide
         </button>
+        <button
+          onClick={() => setActiveSubTab("diagnostics")}
+          className={`px-4 py-2.5 font-mono text-[10px] tracking-widest uppercase font-bold border-b-2 transition ${
+            activeSubTab === "diagnostics"
+              ? "border-[#9e4b2e] text-[#9e4b2e]"
+              : "border-transparent text-stone-400 hover:text-stone-700"
+          }`}
+        >
+          🔍 Webhook Diagnostics
+        </button>
       </div>
 
       {/* Physical webhook status banner */}
       {(() => {
         const connectedLoginAcc = accounts.find(
-          acc => acc.isConnected && acc.accessToken?.toUpperCase().startsWith("IGAA")
+          acc => acc.isConnected && 
+                 acc.accessToken?.toUpperCase().startsWith("IGAA") && 
+                 (!acc.messagingAccessToken || !acc.messagingAccessToken.toUpperCase().startsWith("EAA"))
         );
         if (!connectedLoginAcc) return null;
         return (
@@ -1307,7 +1355,7 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeSubTab === "integration" ? (
         /* Real Webhook Integration Guide */
         <div className="space-y-8 animate-fadeIn">
           {/* Header Description */}
@@ -1432,12 +1480,12 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                     <input
                       type="text"
                       readOnly
-                      value="sfr_digitech_verify_token"
+                      value={verifyToken}
                       className="flex-1 bg-stone-50 border border-[#e3ded5] rounded-lg px-3 py-2 text-xs text-stone-700 font-mono focus:outline-none"
                     />
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText("sfr_digitech_verify_token");
+                        navigator.clipboard.writeText(verifyToken);
                         setCopiedField("token");
                         setTimeout(() => setCopiedField(null), 2500);
                       }}
@@ -1456,10 +1504,13 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                 {/* Webhook Connection Requisite Alert */}
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-2 mt-2">
                   <div className="flex items-center space-x-1.5 text-amber-800 font-mono text-[9px] font-bold uppercase tracking-wider">
-                    <span>⚠️ CRITICAL CONNECTION REQUIREMENT</span>
+                    <span>⚠️ GOOGLE AI STUDIO SECURITY WARNING</span>
                   </div>
                   <p className="text-[11px] text-stone-600 leading-relaxed">
-                    Meta's verification servers require a completely public URL. You <strong>MUST</strong> use the <strong>Shared App URL</strong> containing <code>ais-pre-</code> shown above. Do not use your private development URL (which contains <code>ais-dev-</code>), as Meta's requests will be blocked by authorization checks.
+                    Google AI Studio protects both <code>ais-dev-</code> and <code>ais-pre-</code> domains behind a cookie authentication gate. Because of this, Meta's external verification crawler receives a redirect (302) and <strong>cannot verify the ais-pre- URL</strong>.
+                  </p>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    To connect a real production webhook, please check the <strong>"Customize"</strong> checkbox above and paste your public <strong>Vercel Webhook URL</strong> (e.g., <code>https://sfrwebhook.vercel.app/api/webhook/instagram</code>), which is fully public and verifies successfully.
                   </p>
                 </div>
 
@@ -1481,7 +1532,9 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                 {/* Webhook Subscription Engine */}
                 {(() => {
                   const connectedLoginAcc = accounts.find(
-                    acc => acc.isConnected && acc.accessToken && acc.accessToken.length > 30 && !acc.accessToken.includes("mock")
+                    acc => acc.isConnected && 
+                           ((acc.accessToken && acc.accessToken.length > 30 && !acc.accessToken.includes("mock")) ||
+                            (acc.messagingAccessToken && acc.messagingAccessToken.length > 30 && !acc.messagingAccessToken.includes("mock")))
                   );
                   if (!connectedLoginAcc) return null;
                   return (
@@ -1503,8 +1556,8 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                       {subscribeResult && (
                         <div className={`p-3 rounded-lg text-xs leading-relaxed font-mono ${
                           subscribeResult.success 
-                            ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
-                            : "bg-rose-50 border border-rose-200 text-rose-800"
+                             ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
+                             : "bg-rose-50 border border-rose-200 text-rose-800"
                         }`}>
                           {subscribeResult.success ? (
                             <div className="space-y-1">
@@ -1617,6 +1670,219 @@ export default function AutoReplyPanel({ accounts }: AutoReplyPanelProps) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      ) : (
+        /* Live Webhook Diagnostics Control Center */
+        <div className="space-y-8 animate-fadeIn">
+          {/* Header Description */}
+          <div className="bg-[#FAF8F5] border border-[#e3ded5] p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-display font-medium text-[#9e4b2e] flex items-center space-x-2">
+                <RefreshCw size={18} className={loadingDiagnostics ? "animate-spin text-[#9e4b2e]" : "text-[#9e4b2e]"} />
+                <span>Live Webhook Diagnostics Control Center</span>
+              </h3>
+              <p className="text-xs text-stone-600 font-sans mt-1.5 leading-relaxed">
+                Review raw incoming payloads, check message processing paths, evaluate token scopes, and debug Meta API error responses in real-time.
+              </p>
+            </div>
+            <button
+              onClick={fetchDiagnostics}
+              disabled={loadingDiagnostics}
+              className="px-4 py-2 bg-[#9e4b2e] hover:bg-[#863e24] text-white text-xs font-mono font-bold uppercase tracking-wider rounded-lg transition shadow-sm flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              <RefreshCw size={12} className={loadingDiagnostics ? "animate-spin" : ""} />
+              <span>{loadingDiagnostics ? "Refreshing..." : "Refresh Diagnostic"}</span>
+            </button>
+          </div>
+
+          {/* Connection Checkup */}
+          {(() => {
+            const connectedAcc = diagnostics?.accounts?.find(acc => acc.isConnected);
+            const token = connectedAcc?.messagingAccessToken || connectedAcc?.accessToken || "";
+            const isBasicToken = token.trim().toUpperCase().startsWith("IGAA");
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className={`p-5 rounded-2xl border ${isBasicToken ? "bg-red-50/50 border-red-200" : "bg-emerald-50/50 border-emerald-200"}`}>
+                  <h4 className={`text-xs font-mono font-bold uppercase tracking-widest ${isBasicToken ? "text-red-800" : "text-emerald-800"}`}>
+                    Meta Access Token Authorization
+                  </h4>
+                  {connectedAcc ? (
+                    <div className="mt-3 space-y-2 text-xs">
+                      <p className="font-sans text-stone-700">
+                        Connected Account: <strong className="font-mono text-stone-900">@{connectedAcc.username}</strong>
+                      </p>
+                      <p className="font-sans text-stone-700">
+                        Token Header: <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold border border-[#e3ded5]">{token.substring(0, 15)}...</code>
+                      </p>
+                      <p className="font-sans text-stone-700 leading-relaxed">
+                        Authentication Type: {isBasicToken ? (
+                          <span className="text-rose-700 font-bold font-mono bg-rose-100 px-1.5 py-0.5 rounded text-[10px]">Instagram Basic Display Token (Blocked)</span>
+                        ) : (
+                          <span className="text-emerald-700 font-bold font-mono bg-emerald-100 px-1.5 py-0.5 rounded text-[10px]">Facebook Page Token (EAA...)</span>
+                        )}
+                      </p>
+                      {isBasicToken ? (
+                        <div className="bg-white border border-red-200/80 p-3.5 rounded-xl mt-3 text-[11px] text-red-900/95 leading-relaxed space-y-1.5 shadow-xs">
+                          <p className="font-bold flex items-center text-red-850">
+                            <ShieldAlert size={14} className="mr-1 inline shrink-0" />
+                            CRITICAL INTEGRATION LIMITATION DETECTED:
+                          </p>
+                          <p>
+                            Your connected account <strong>@{connectedAcc.username}</strong> is linked with an Instagram Basic Display Token (starting with <code className="bg-rose-50 text-red-700 px-0.5 rounded font-mono">IGAA...</code>).
+                          </p>
+                          <p>
+                            Meta's platform architecture **strictly blocks** Basic Display Tokens from receiving webhooks or sending direct message replies. These actions require Page Tokens.
+                          </p>
+                          <p className="text-amber-800 font-bold pt-1">
+                            💡 Resolution: Please connect an Instagram Business or Creator account using a Facebook Page Token (starts with EAA...) in the Settings.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-white border border-emerald-200/80 p-3.5 rounded-xl mt-3 text-[11px] text-emerald-900/95 leading-relaxed shadow-xs">
+                          <p className="font-bold text-emerald-950">✔ Page Token Configured Properly:</p>
+                          <p className="mt-1">This token supports the full direct message reply and comment auto-reply webhooks.</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-stone-500 mt-2">No connected accounts. Please connect an account first under settings.</p>
+                  )}
+                </div>
+
+                <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-2xl space-y-3">
+                  <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-amber-800">
+                    Meta Sandbox Tester Accounts Rule (Task 5)
+                  </h4>
+                  <div className="text-xs text-stone-700 space-y-2 leading-relaxed">
+                    <p>
+                      If your Meta Application in Developers Portal is still in <strong>"Development Mode"</strong>:
+                    </p>
+                    <ul className="list-disc list-inside space-y-1.5 text-stone-600 pl-1 text-[11px]">
+                      <li>Incoming direct messages from followers will **NOT** trigger webhooks.</li>
+                      <li>To receive DMs during development, you **MUST** register the sender's Instagram account as a <strong>"Tester"</strong> in your Meta Developer App settings (under Roles &gt; Testers), and accept the invitation on the user's Instagram account.</li>
+                      <li>Alternatively, move your Meta App to <strong>"Live Mode"</strong> to reply to general public followers.</li>
+                    </ul>
+                    <p className="text-[11px] font-mono text-amber-900 bg-white/70 p-2 rounded-lg border border-amber-200/60 mt-1">
+                      💡 <strong>Sandbox Tip:</strong> Use the <strong>Interactive DM Simulator & Sandbox</strong> subtab to test all rules immediately without configure webhooks!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Diagnostics JSON Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            {/* Panel 1: Last Webhook Payload */}
+            <div className="bg-white border border-[#e3ded5] p-5 rounded-2xl space-y-3 shadow-sm flex flex-col h-[400px]">
+              <div className="flex items-center justify-between border-b border-[#f2efe7] pb-2">
+                <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-stone-700 flex items-center space-x-1.5">
+                  <span>1. Last Raw Webhook Payload</span>
+                </h4>
+                {diagnostics?.lastWebhookPayload?.timestamp && (
+                  <span className="text-[9px] font-mono text-stone-400">
+                    Received: {new Date(diagnostics.lastWebhookPayload.timestamp).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 bg-stone-900 rounded-xl p-4 font-mono text-[10px] text-emerald-400 overflow-auto whitespace-pre-wrap leading-normal select-text">
+                {diagnostics?.lastWebhookPayload ? (
+                  JSON.stringify(diagnostics.lastWebhookPayload, null, 2)
+                ) : (
+                  <span className="text-stone-500 italic">No incoming webhooks received yet. Check your Meta subscription status.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Panel 2: Last Incoming Message */}
+            <div className="bg-white border border-[#e3ded5] p-5 rounded-2xl space-y-3 shadow-sm flex flex-col h-[400px]">
+              <div className="flex items-center justify-between border-b border-[#f2efe7] pb-2">
+                <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-stone-700 flex items-center space-x-1.5">
+                  <span>2. Last Messaging Event (Verify IDs)</span>
+                </h4>
+                {diagnostics?.lastIncomingMessage?.timestamp && (
+                  <span className="text-[9px] font-mono text-stone-400">
+                    Captured: {new Date(diagnostics.lastIncomingMessage.timestamp).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 bg-stone-900 rounded-xl p-4 font-mono text-[10px] text-emerald-400 overflow-auto whitespace-pre-wrap leading-normal select-text">
+                {diagnostics?.lastIncomingMessage ? (
+                  JSON.stringify(diagnostics.lastIncomingMessage, null, 2)
+                ) : (
+                  <span className="text-stone-500 italic">No messaging event captured yet. Send a test DM to trigger webhooks.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Panel 3: Last Reply Attempt */}
+            <div className="bg-white border border-[#e3ded5] p-5 rounded-2xl space-y-3 shadow-sm flex flex-col h-[400px]">
+              <div className="flex items-center justify-between border-b border-[#f2efe7] pb-2">
+                <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-stone-700 flex items-center space-x-1.5">
+                  <span>3. Last Reply Dispatch Payload</span>
+                </h4>
+                {diagnostics?.lastReplyAttempt?.timestamp && (
+                  <span className="text-[9px] font-mono text-stone-400">
+                    Dispatched: {new Date(diagnostics.lastReplyAttempt.timestamp).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 bg-stone-900 rounded-xl p-4 font-mono text-[10px] text-emerald-400 overflow-auto whitespace-pre-wrap leading-normal select-text">
+                {diagnostics?.lastReplyAttempt ? (
+                  JSON.stringify(diagnostics.lastReplyAttempt, null, 2)
+                ) : (
+                  <span className="text-stone-500 italic">No replies dispatched yet. Match rules to send.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Panel 4: API Error Responses */}
+            <div className="bg-white border border-[#e3ded5] p-5 rounded-2xl space-y-4 shadow-sm flex flex-col h-[400px]">
+              {/* Meta Error */}
+              <div className="flex flex-col flex-1 min-h-[160px]">
+                <div className="flex items-center justify-between border-b border-[#f2efe7] pb-1.5 mb-2">
+                  <h4 className="text-[11px] font-mono font-bold uppercase tracking-widest text-rose-700 flex items-center space-x-1.5">
+                    <span>4a. Last Meta API Error</span>
+                  </h4>
+                  {diagnostics?.lastMetaApiError?.timestamp && (
+                    <span className="text-[9px] font-mono text-stone-400">
+                      Logged: {new Date(diagnostics.lastMetaApiError.timestamp).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 bg-stone-900 rounded-xl p-3 font-mono text-[9px] text-rose-400 overflow-auto whitespace-pre-wrap leading-normal select-text max-h-[130px]">
+                  {diagnostics?.lastMetaApiError ? (
+                    JSON.stringify(diagnostics.lastMetaApiError, null, 2)
+                  ) : (
+                    <span className="text-emerald-500 font-semibold">✔ No active Meta Graph API errors reported!</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Gemini Error */}
+              <div className="flex flex-col flex-1 min-h-[160px]">
+                <div className="flex items-center justify-between border-b border-[#f2efe7] pb-1.5 mb-2">
+                  <h4 className="text-[11px] font-mono font-bold uppercase tracking-widest text-amber-700 flex items-center space-x-1.5">
+                    <span>4b. Last Gemini AI API Error</span>
+                  </h4>
+                  {diagnostics?.lastGeminiApiError?.timestamp && (
+                    <span className="text-[9px] font-mono text-stone-400">
+                      Logged: {new Date(diagnostics.lastGeminiApiError.timestamp).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 bg-stone-900 rounded-xl p-3 font-mono text-[9px] text-amber-400 overflow-auto whitespace-pre-wrap leading-normal select-text max-h-[130px]">
+                  {diagnostics?.lastGeminiApiError ? (
+                    JSON.stringify(diagnostics.lastGeminiApiError, null, 2)
+                  ) : (
+                    <span className="text-emerald-500 font-semibold">✔ No active Gemini AI API errors reported! AI Auto-Response is healthy.</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

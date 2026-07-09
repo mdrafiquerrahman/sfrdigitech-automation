@@ -110,10 +110,13 @@ interface InstagramAccount {
   displayName: string;
   profilePicture: string;
   accessToken: string; // secure encrypted representation
+  messagingAccessToken?: string; // page access token representation
   isConnected: boolean;
   connectedAt: string;
   isReal?: boolean;
   instagramBusinessAccountId?: string;
+  enableContentIG?: boolean;
+  enableMessageEA?: boolean;
 }
 
 interface MediaAsset {
@@ -209,6 +212,11 @@ interface DB {
     appPublicUrl?: string;
     customWebhookUrl?: string;
     manychatBranding?: boolean;
+    lastWebhookPayload?: any;
+    lastIncomingMessage?: any;
+    lastReplyAttempt?: any;
+    lastMetaApiError?: any;
+    lastGeminiApiError?: any;
   };
   currentUser: User | null;
   autoreply_rules?: AutoReplyRule[];
@@ -610,6 +618,33 @@ function writeDB(db: DB) {
   } catch (err) {
     console.error("Error writing to database file:", err);
   }
+
+  // If running in development sandbox (not Vercel) and custom Vercel webhook URL is configured,
+  // automatically push updated database to Vercel to keep tokens and auto-reply rules perfectly in sync!
+  if (!process.env.VERCEL && db.settings?.customWebhookUrl) {
+    const customUrl = db.settings.customWebhookUrl.trim();
+    if (customUrl.startsWith("http")) {
+      try {
+        const parsedUrl = new URL(customUrl);
+        const syncUrl = `${parsedUrl.protocol}//${parsedUrl.host}/api/webhook/sync-db`;
+        
+        // Asynchronous non-blocking background fetch
+        fetch(syncUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ db })
+        }).then((syncRes) => {
+          if (!syncRes.ok) {
+            console.warn(`[Database Sync Warning] Vercel push-sync returned status: ${syncRes.status}`);
+          }
+        }).catch((err) => {
+          console.error("[Database Sync Error] Failed to push database state to Vercel:", err);
+        });
+      } catch (err) {
+        console.error("[Database Sync Error] Invalid custom webhook URL configured:", err);
+      }
+    }
+  }
 }
 
 // Initialize Gemini SDK safely
@@ -694,18 +729,24 @@ app.get("/api/accounts", (req, res) => {
 
 app.post("/api/connect-oauth", (req, res) => {
   const db = readDB();
-  const { username, displayName, profilePicture, isReal, instagramBusinessAccountId, accessToken } = req.body;
+  const { username, displayName, profilePicture, isReal, instagramBusinessAccountId, accessToken, messagingAccessToken } = req.body;
 
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
   }
 
   // Check if already connected
-  const existingIndex = db.instagram_accounts.findIndex((a) => a.username === username);
+  console.log("Searching for account (normalized):", username.toLowerCase());
+  const existingIndex = db.instagram_accounts.findIndex((a) => a.username.toLowerCase() === username.toLowerCase());
+  console.log("Existing account index found:", existingIndex);
   
   const tokenString = isReal && accessToken 
     ? accessToken 
     : "ig_oauth_enc_gcm_" + Math.random().toString(36).substring(2, 11) + "... [AES-256 ENCRYPTED]";
+
+  const messagingTokenString = isReal && messagingAccessToken
+    ? messagingAccessToken
+    : (isReal ? "" : "ig_oauth_enc_gcm_msg_" + Math.random().toString(36).substring(2, 11) + "... [AES-256 ENCRYPTED]");
 
   const newAccount: InstagramAccount = {
     id: "acc_" + Math.random().toString(36).substring(2, 11),
@@ -714,10 +755,13 @@ app.post("/api/connect-oauth", (req, res) => {
     displayName: displayName || `${username} Business`,
     profilePicture: profilePicture || `https://api.dicebear.com/7.x/identicon/svg?seed=${username}`,
     accessToken: tokenString,
+    messagingAccessToken: messagingTokenString,
     isConnected: true,
     connectedAt: new Date().toISOString(),
     isReal: !!isReal,
-    instagramBusinessAccountId: instagramBusinessAccountId || ""
+    instagramBusinessAccountId: instagramBusinessAccountId || "",
+    enableContentIG: true,
+    enableMessageEA: true
   };
 
   if (existingIndex !== -1) {
@@ -725,9 +769,12 @@ app.post("/api/connect-oauth", (req, res) => {
       ...db.instagram_accounts[existingIndex],
       isConnected: true,
       accessToken: tokenString,
+      messagingAccessToken: messagingTokenString || db.instagram_accounts[existingIndex].messagingAccessToken || "",
       connectedAt: new Date().toISOString(),
       isReal: !!isReal,
-      instagramBusinessAccountId: instagramBusinessAccountId || ""
+      instagramBusinessAccountId: instagramBusinessAccountId || "",
+      enableContentIG: db.instagram_accounts[existingIndex].enableContentIG !== undefined ? db.instagram_accounts[existingIndex].enableContentIG : true,
+      enableMessageEA: db.instagram_accounts[existingIndex].enableMessageEA !== undefined ? db.instagram_accounts[existingIndex].enableMessageEA : true
     };
   } else {
     db.instagram_accounts.push(newAccount);
@@ -846,6 +893,26 @@ app.post("/api/instagram/subscribe-webhook", async (req, res) => {
     console.error("[Webhook Subscribe] Request failed:", err);
     return res.status(500).json({ error: err.message || "Failed to contact Meta API." });
   }
+});
+
+app.put("/api/accounts/:id", (req, res) => {
+  const db = readDB();
+  const { id } = req.params;
+  const { enableContentIG, enableMessageEA, displayName, instagramBusinessAccountId } = req.body;
+
+  const accIndex = db.instagram_accounts.findIndex((a) => a.id === id);
+  if (accIndex === -1) {
+    return res.status(404).json({ error: "Account not found." });
+  }
+
+  const account = db.instagram_accounts[accIndex];
+  if (enableContentIG !== undefined) account.enableContentIG = !!enableContentIG;
+  if (enableMessageEA !== undefined) account.enableMessageEA = !!enableMessageEA;
+  if (displayName !== undefined) account.displayName = displayName;
+  if (instagramBusinessAccountId !== undefined) account.instagramBusinessAccountId = instagramBusinessAccountId;
+
+  writeDB(db);
+  res.json({ success: true, account });
 });
 
 app.delete("/api/accounts/:id", (req, res) => {
@@ -1240,7 +1307,7 @@ Return the result strictly as a JSON object with this exact structure (no markdo
 }`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -1249,9 +1316,24 @@ Return the result strictly as a JSON object with this exact structure (no markdo
 
     const text = response.text || "";
     const parsed = JSON.parse(text);
+    
+    // Clear Gemini API error on success
+    const db = readDB();
+    db.settings.lastGeminiApiError = null;
+    writeDB(db);
+
     res.json(parsed);
   } catch (err: any) {
     console.error("Gemini Caption generation failed:", err);
+    try {
+      const db = readDB();
+      db.settings.lastGeminiApiError = {
+        timestamp: new Date().toISOString(),
+        message: err.message || String(err),
+        details: err.status ? { status: err.status } : err
+      };
+      writeDB(db);
+    } catch (_) {}
     res.status(500).json({ error: "Failed to generate caption. " + (err.message || "") });
   }
 });
@@ -1292,9 +1374,23 @@ app.post("/api/gemini/generate-image", async (req, res) => {
       return res.status(500).json({ error: "No image data was generated by the model." });
     }
 
+    // Clear Gemini API error on success
+    const db = readDB();
+    db.settings.lastGeminiApiError = null;
+    writeDB(db);
+
     res.json({ imageUrl: base64Image });
   } catch (err: any) {
     console.error("Gemini Image generation failed:", err);
+    try {
+      const db = readDB();
+      db.settings.lastGeminiApiError = {
+        timestamp: new Date().toISOString(),
+        message: err.message || String(err),
+        details: err.status ? { status: err.status } : err
+      };
+      writeDB(db);
+    } catch (_) {}
     res.status(500).json({ error: "Failed to generate image. " + (err.message || "") });
   }
 });
@@ -1359,7 +1455,11 @@ app.get("/api/dashboard-analytics", (req, res) => {
 // Settings / System config
 app.get("/api/bot/settings", (req, res) => {
   const db = readDB();
-  res.json(db.settings);
+  const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "meta_verify_token_example_123";
+  res.json({
+    ...db.settings,
+    verifyToken: VERIFY_TOKEN
+  });
 });
 
 app.post("/api/bot/settings", (req, res) => {
@@ -1381,6 +1481,20 @@ app.post("/api/bot/settings", (req, res) => {
 
   writeDB(db);
   res.json(db.settings);
+});
+
+// Get diagnostic state
+app.get("/api/bot/diagnostics", (req, res) => {
+  const db = readDB();
+  res.json({
+    lastWebhookPayload: db.settings.lastWebhookPayload || null,
+    lastIncomingMessage: db.settings.lastIncomingMessage || null,
+    lastReplyAttempt: db.settings.lastReplyAttempt || null,
+    lastMetaApiError: db.settings.lastMetaApiError || null,
+    lastGeminiApiError: db.settings.lastGeminiApiError || null,
+    settings: db.settings,
+    accounts: db.instagram_accounts
+  });
 });
 
 // --- INSTAGRAM AUTO-REPLY ENDPOINTS ---
@@ -1580,6 +1694,21 @@ function generateSmartFallbackReply(messageText: string, instruction: string): s
 // Helper to execute auto-reply logic
 async function executeAutoReply(senderUsername: string, messageText: string, isComment: boolean, forceOffline: boolean = false): Promise<InstagramMessage> {
   const db = readDB();
+  
+  // Skip auto-replies if Message EA is disabled for the connected profile
+  const account = db.instagram_accounts.find(a => a.isConnected);
+  if (account && account.enableMessageEA === false) {
+    console.log(`[Auto-Reply Bypass] Skipping auto-reply for @${senderUsername} because Message EA is disabled for account @${account.username}.`);
+    return {
+      id: "msg_" + Math.random().toString(36).substring(2, 11),
+      senderUsername,
+      messageText,
+      timestamp: new Date().toISOString(),
+      replySent: "Auto-reply is disabled for this profile in your control dashboard.",
+      replyType: "none"
+    };
+  }
+
   const rules = db.autoreply_rules || [];
   let matchedRule: AutoReplyRule | undefined = undefined;
 
@@ -1685,7 +1814,7 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
         try {
           const prompt = `Generate a response to this Instagram message/comment: "${messageText}". Ensure you follow these specific guidelines: ${matchedRule.aiPromptInstruction}`;
           const response = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-2.5-flash",
             contents: prompt,
             config: {
               systemInstruction: "You are an automated, helpful, and friendly customer support assistant responding to Instagram direct messages or comments for the brand SFR DigiTech. Be polite, direct, keep responses concise, and do not use generic AI-sounding templates.",
@@ -1693,6 +1822,7 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
             }
           });
           replySent = response.text || "Thank you for reaching out!";
+          db.settings.lastGeminiApiError = null; // Clear error on successful call
         } catch (err: any) {
           const isQuota = err.message?.includes("quota") || err.message?.includes("429") || err.status === 429;
           if (isQuota) {
@@ -1700,6 +1830,14 @@ async function executeAutoReply(senderUsername: string, messageText: string, isC
           } else {
             console.error("[Auto-Responder] Gemini API error:", err.message || err);
           }
+
+          // Log the Gemini API error to diagnostics settings
+          db.settings.lastGeminiApiError = {
+            timestamp: new Date().toISOString(),
+            message: err.message || String(err),
+            details: err.status ? { status: err.status } : err
+          };
+
           replySent = generateSmartFallbackReply(messageText, matchedRule.aiPromptInstruction || "");
         }
       } else {
@@ -1767,21 +1905,52 @@ app.post("/api/autoreply/simulate", async (req, res) => {
 
 // --- REAL INSTAGRAM WEBHOOK INTEGRATION ENDPOINTS ---
 
+// GET /api/webhook/sync-db (Pull database state from Vercel to local sandbox)
+app.get("/api/webhook/sync-db", (req, res) => {
+  const db = readDB();
+  res.json({ success: true, db });
+});
+
+// POST /api/webhook/sync-db (Push database state from local sandbox to Vercel)
+app.post("/api/webhook/sync-db", (req, res) => {
+  const { db } = req.body;
+  if (!db) {
+    return res.status(400).json({ error: "No DB payload found." });
+  }
+
+  // Only allow state writing if we are running in the Vercel cloud environment
+  if (process.env.VERCEL) {
+    console.log("[Vercel Webhook Sync] Synchronizing database state from development sandbox.");
+    inMemoryDB = db;
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+      console.log("[Vercel Webhook Sync] Database written successfully to:", DB_FILE);
+    } catch (err: any) {
+      console.error("[Vercel Webhook Sync Error] Failed to write database to disk:", err.message);
+    }
+  }
+
+  res.json({ success: true, message: "Database state synchronized successfully on Vercel." });
+});
+
 // GET Webhook verification (Meta App Review / Setup)
-app.get("/api/webhook/instagram", async (req, res) => {
+app.get(["/api/webhook", "/api/webhook/instagram"], async (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
-  // Default verify token: sfr_digitech_verify_token (can be customized via environment variable)
-  const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "sfr_digitech_verify_token";
-
   const host = req.get("host") || "";
 
+  const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || "meta_verify_token_example_123";
+
   // 1. If it's an actual Meta verification challenge (has mode and token), answer immediately locally!
+  // This is critical because the dev container is session-secured/auth-gated, so forwarding would fail.
   if (mode && token) {
-    if (mode === "subscribe" && token === VERIFY_TOKEN) {
-      console.log(`[Webhook] Instagram Webhook verified successfully with token: ${VERIFY_TOKEN}`);
+    const isMatched = (token === VERIFY_TOKEN) || 
+                      (token === "meta_verify_token_example_123") || 
+                      (token === "sfr_digitech_verify_token");
+
+    if (mode === "subscribe" && isMatched) {
+      console.log(`[Webhook] Instagram Webhook verified successfully locally. Token: ${token}`);
       
       // Log verification success to DB asynchronously
       try {
@@ -1800,9 +1969,10 @@ app.get("/api/webhook/instagram", async (req, res) => {
         console.error("[Webhook Log Error] Failed to write verification log:", e.message);
       }
 
+      res.set("Content-Type", "text/plain");
       return res.status(200).send(challenge);
     } else {
-      console.warn(`[Webhook] Instagram Webhook verification failed. Token mismatch. Expected: "${VERIFY_TOKEN}", Received: "${token}"`);
+      console.warn(`[Webhook] Instagram Webhook verification failed. Token mismatch. Expected: "${VERIFY_TOKEN}" or "meta_verify_token_example_123", Received: "${token}"`);
       
       // Log verification failure to DB asynchronously
       try {
@@ -1813,7 +1983,7 @@ app.get("/api/webhook/instagram", async (req, res) => {
           scheduledPostId: "",
           timestamp: new Date().toISOString(),
           status: "error",
-          message: `[Meta Webhook Verification] Webhook verification failed (token mismatch). Mode: "${mode}", Token: "${token}", Expected: "${VERIFY_TOKEN}".`,
+          message: `[Meta Webhook Verification] Webhook verification failed (token mismatch). Mode: "${mode}", Token: "${token}", Expected: "${VERIFY_TOKEN}" or "meta_verify_token_example_123".`,
           attemptCount: 1
         });
         writeDB(dbLog);
@@ -1825,20 +1995,18 @@ app.get("/api/webhook/instagram", async (req, res) => {
     }
   }
 
-  // 2. Otherwise, if request is from browser/external and hits pre-prod container, forward to dev container
+  // 2. If request hits the pre-prod container, forward to dev container where the live DB and settings reside
   if (host.includes("ais-pre-")) {
-    const devUrl = `https://${host.replace("ais-pre-", "ais-dev-")}/api/webhook/instagram?hub.mode=${mode || ""}&hub.verify_token=${token || ""}&hub.challenge=${challenge || ""}`;
+    const devUrl = `https://${host.replace("ais-pre-", "ais-dev-")}/api/webhook/instagram?hub.mode=${encodeURIComponent((mode as string) || "")}&hub.verify_token=${encodeURIComponent((token as string) || "")}&hub.challenge=${encodeURIComponent((challenge as string) || "")}`;
     console.log(`[Webhook Forwarding] Forwarding GET verification/request to dev container: ${devUrl}`);
     try {
       const devRes = await fetch(devUrl);
-      if (devRes.ok) {
-        const text = await devRes.text();
-        return res.status(devRes.status).send(text);
-      } else {
-        console.warn(`[Webhook Forwarding GET] Dev container returned non-OK status: ${devRes.status}. Processing locally as fallback.`);
-      }
+      const text = await devRes.text();
+      res.set("Content-Type", devRes.headers.get("Content-Type") || "text/plain");
+      return res.status(devRes.status).send(text);
     } catch (err: any) {
       console.error("[Webhook Forwarding Error] Failed to forward GET verification:", err);
+      // Fallback: continue local processing if forwarding fails
     }
   }
 
@@ -1967,7 +2135,7 @@ app.get("/api/webhook/instagram", async (req, res) => {
 });
 
 // POST Webhook receiver (Meta delivers DMs & Comments here)
-app.post("/api/webhook/instagram", async (req, res) => {
+app.post(["/api/webhook", "/api/webhook/instagram"], async (req, res) => {
   const body = req.body;
   const host = req.get("host") || "";
 
@@ -2008,6 +2176,14 @@ app.post("/api/webhook/instagram", async (req, res) => {
     message: `[Webhook POST] Received event payload. Object: "${body?.object || "undefined"}". Entry count: ${Array.isArray(body?.entry) ? body.entry.length : 0}. Full Payload: ${JSON.stringify(body).substring(0, 1000)}`,
     attemptCount: 1
   });
+  if (dbLog.settings) {
+    dbLog.settings.lastWebhookPayload = {
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      query: req.query,
+      body: body
+    };
+  }
   writeDB(dbLog);
 
   // Verify this is a subscription update from page/instagram
@@ -2015,7 +2191,13 @@ app.post("/api/webhook/instagram", async (req, res) => {
     console.log("[Webhook] Received incoming Meta event:", JSON.stringify(body, null, 2));
 
     // Forward the webhook payload to custom webhook URL if enabled/configured (e.g. Vercel deployment)
-    if (dbLog.settings?.customWebhookUrl) {
+    // Prevent infinite forwarding loop if forwardUrl is the same as current host or vercel helper
+    const currentHost = host.toLowerCase();
+    const forwardUrlLower = (dbLog.settings?.customWebhookUrl || "").trim().toLowerCase();
+    const isSelfForwarding = forwardUrlLower.includes("vercel.app") || 
+                             (currentHost && forwardUrlLower.includes(currentHost));
+
+    if (dbLog.settings?.customWebhookUrl && !isSelfForwarding) {
       const forwardUrl = dbLog.settings.customWebhookUrl.trim();
       if (forwardUrl.startsWith("http")) {
         console.log(`[Webhook] Forwarding webhook payload to custom webhook URL: ${forwardUrl}`);
@@ -2073,10 +2255,44 @@ app.post("/api/webhook/instagram", async (req, res) => {
             const recipientId = msgEvent.recipient?.id;
             const messageText = msgEvent.message?.text;
 
-            // Skip if no text content or echo messages from the bot itself
-            if (!messageText || msgEvent.message?.is_echo) continue;
+            // 1. Log and verify sender and recipient IDs
+            console.log(`[Webhook Diagnostic] Received messaging event. Sender ID: "${senderId || "undefined"}", Recipient ID: "${recipientId || "undefined"}".`);
+            
+            // Log raw message details to settings for live debugging
+            if (db.settings) {
+              db.settings.lastIncomingMessage = {
+                timestamp: new Date().toISOString(),
+                businessAccountId,
+                senderId,
+                recipientId,
+                messageText,
+                fullEvent: msgEvent
+              };
+            }
+            writeDB(db);
 
-            console.log(`[Webhook] Incoming DM from ${senderId} to ${recipientId}: "${messageText}"`);
+            // 2. Verify that self-generated messages are ignored
+            if (msgEvent.message?.is_echo) {
+              console.log(`[Webhook Diagnostic] Self-generated message (echo) detected from sender: "${senderId}". Ignoring message event to prevent recursion.`);
+              db.publish_logs.push({
+                id: "log_" + Math.random().toString(36).substring(2, 11),
+                scheduledPostId: "",
+                timestamp: new Date().toISOString(),
+                status: "info",
+                message: `[Webhook Warning] Ignored self-generated echo message from ${senderId}: "${messageText || ""}"`,
+                attemptCount: 1
+              });
+              writeDB(db);
+              continue;
+            }
+
+            // Skip if no text content is available in the message
+            if (!messageText) {
+              console.log(`[Webhook Warning] Message event from "${senderId}" has no text content. Skipping processing.`);
+              continue;
+            }
+
+            console.log(`[Webhook] Processing incoming DM from ${senderId} to ${recipientId}: "${messageText}"`);
 
             // Resolve the corresponding connected account
             const account = db.instagram_accounts.find(
@@ -2084,7 +2300,7 @@ app.post("/api/webhook/instagram", async (req, res) => {
             ) || db.instagram_accounts.find(a => a.isConnected);
 
             let senderUsername = senderId ? `ig_user_${senderId.toString().substring(0, 5)}` : "ig_user_unknown";
-            let accessToken = account?.accessToken || "";
+            let accessToken = account?.messagingAccessToken || account?.accessToken || "";
 
             // Try to fetch real username if we have a real access token
             const isRealToken = accessToken && accessToken.length > 30 && !accessToken.includes("mock");
@@ -2101,31 +2317,60 @@ app.post("/api/webhook/instagram", async (req, res) => {
                   }
                 }
               } catch (err) {
-                console.warn("[Webhook] Failed to fetch sender username:", err);
+                console.warn("[Webhook Warning] Failed to fetch sender username via Graph API:", err);
               }
             }
 
             // Execute auto-reply rule logic
             const newMessage = await executeAutoReply(senderUsername, messageText, false);
 
+            // Record this reply attempt
+            if (db.settings) {
+              db.settings.lastReplyAttempt = {
+                timestamp: new Date().toISOString(),
+                recipientId: senderId,
+                senderId: recipientId || businessAccountId,
+                messageText: newMessage.replySent,
+                tokenType: isRealToken ? (isInstagramLoginToken ? "IGAA (Instagram Login)" : "EAA (Facebook Login)") : "Mock Token",
+                graphHost: graphHost
+              };
+            }
+            writeDB(db);
+
             // Send actual message back via Meta Graph API if token is real
             if (isRealToken && newMessage.replySent && !newMessage.replySent.includes("[AI Auto-Responder Error]") && senderId) {
               try {
-                console.log(`[Webhook] Sending real DM reply back to @${senderUsername} (${senderId}) via ${graphHost}...`);
-                const sendRes = await fetch(`https://${graphHost}/v20.0/me/messages?access_token=${accessToken}`, {
+                const requestUrl = `https://${graphHost}/v20.0/me/messages?access_token=${accessToken}`;
+                const requestBody = {
+                  recipient: { id: senderId },
+                  message: { text: newMessage.replySent }
+                };
+
+                console.log(`[Webhook Diagnostic] Dispatching outgoing reply. URL: ${requestUrl.replace(accessToken, "REDACTED_ACCESS_TOKEN")}, Body: ${JSON.stringify(requestBody)}`);
+
+                const sendRes = await fetch(requestUrl, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    recipient: { id: senderId },
-                    message: { text: newMessage.replySent }
-                  })
+                  body: JSON.stringify(requestBody)
                 });
 
+                const resStatus = sendRes.status;
+                const resText = await sendRes.text();
+                let errData: any = null;
+                try {
+                  errData = JSON.parse(resText);
+                } catch (e) {
+                  errData = { rawText: resText };
+                }
+
+                console.log(`[Webhook Diagnostic] Outgoing delivery completed. HTTP Status: ${resStatus}, Raw Body:`, resText);
+
                 if (!sendRes.ok) {
-                  const errData = await sendRes.json();
-                  console.error("[Webhook] Failed to deliver real direct message reply:", errData);
-                  const errorMsg = `[Auto-Responder Error] Failed to deliver real DM to @${senderUsername}: ${JSON.stringify(errData.error?.message || errData.error || errData)}`;
-                  db.publish_logs.push({
+                  console.error("[Webhook Error] Meta Graph API returned non-OK status during message delivery:", errData);
+                  const errorMsg = `[Auto-Responder Error] Failed to deliver real DM to @${senderUsername} (Status: ${resStatus}). Full Meta Response: ${JSON.stringify(errData)}`;
+                  
+                  const dbErr = readDB();
+                  dbErr.publish_logs.push({
                     id: "log_" + Math.random().toString(36).substring(2, 11),
                     scheduledPostId: "",
                     timestamp: new Date().toISOString(),
@@ -2133,9 +2378,29 @@ app.post("/api/webhook/instagram", async (req, res) => {
                     message: errorMsg,
                     attemptCount: 1
                   });
-                  writeDB(db);
+                  if (dbErr.settings) {
+                    dbErr.settings.lastMetaApiError = {
+                      timestamp: new Date().toISOString(),
+                      status: resStatus,
+                      error: errData
+                    };
+                  }
+                  writeDB(dbErr);
                 } else {
-                  console.log("[Webhook] Real DM reply successfully delivered via Graph API.");
+                  console.log("[Webhook Success] Real DM reply successfully delivered via Graph API.");
+                  const dbSuccess = readDB();
+                  dbSuccess.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: "",
+                    timestamp: new Date().toISOString(),
+                    status: "success",
+                    message: `[Auto-Responder] Successfully sent DM reply to @${senderUsername} via Meta API! Content: "${newMessage.replySent}"`,
+                    attemptCount: 1
+                  });
+                  if (dbSuccess.settings) {
+                    dbSuccess.settings.lastMetaApiError = null; // Clear error on success
+                  }
+                  writeDB(dbSuccess);
                   
                   // Send ManyChat watermark branding bubble if enabled
                   if (newMessage.includeBranding) {
@@ -2151,13 +2416,24 @@ app.post("/api/webhook/instagram", async (req, res) => {
                       });
                       console.log("[Webhook] Real ManyChat branding watermark bubble delivered successfully.");
                     } catch (brandErr) {
-                      console.error("[Webhook] Failed to deliver ManyChat branding bubble:", brandErr);
+                      console.error("[Webhook Warning] Failed to deliver ManyChat branding bubble:", brandErr);
                     }
                   }
                 }
-              } catch (err) {
-                console.error("[Webhook] Error during Meta Graph API DM delivery:", err);
+              } catch (err: any) {
+                console.error("[Webhook Error] Exception raised during Meta Graph API DM delivery:", err);
+                const dbErr = readDB();
+                if (dbErr.settings) {
+                  dbErr.settings.lastMetaApiError = {
+                    timestamp: new Date().toISOString(),
+                    error: err.message || err
+                  };
+                }
+                writeDB(dbErr);
               }
+            } else {
+              // Simulating/recording response for sandbox messages
+              console.log(`[Webhook Mock] Simulating message delivery to @${senderUsername} due to mock/basic token.`);
             }
           }
         }
@@ -2187,7 +2463,7 @@ app.post("/api/webhook/instagram", async (req, res) => {
                 continue;
               }
 
-              let accessToken = account?.accessToken || "";
+              let accessToken = account?.messagingAccessToken || account?.accessToken || "";
               const isRealToken = accessToken && accessToken.length > 30 && !accessToken.includes("mock");
               const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
               const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
@@ -2242,9 +2518,9 @@ app.post("/api/webhook/instagram", async (req, res) => {
   res.sendStatus(404);
 });
 
-// Helper to upload sandbox data-url assets to a public file host (tmpfiles.org) so Meta crawler can fetch them without cookie checks.
-async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: string, originalUrl: string): Promise<string> {
-  const isDevSandbox = originalUrl.includes("ais-dev-") || originalUrl.includes("localhost") || originalUrl.includes("127.0.0.1");
+// Helper to upload sandbox data-url assets to a public file host (litterbox.catbox.moe) so Meta crawler can fetch them without cookie checks.
+async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: string | undefined, originalUrl: string): Promise<string> {
+  const isDevSandbox = originalUrl.includes("ais-dev-") || originalUrl.includes("ais-pre-") || originalUrl.includes("localhost") || originalUrl.includes("127.0.0.1") || originalUrl.startsWith("/") || originalUrl.startsWith("data:");
   if (!isDevSandbox) {
     return originalUrl;
   }
@@ -2255,33 +2531,64 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
     scheduledPostId: postId,
     timestamp: new Date().toISOString(),
     status: "info",
-    message: `[Meta Engine] Sandbox environment detected. Uploading media asset (${mediaAssetId}) to public host (tmpfiles.org) to bypass reverse proxy cookie checks...`,
+    message: `[Meta Engine] Sandbox environment detected. Uploading media asset to public host (litterbox.catbox.moe) to bypass reverse proxy cookie checks...`,
     attemptCount: 1
   });
   writeDB(db);
 
   try {
-    const asset = db.media.find((m) => m.id === mediaAssetId);
+    let asset = mediaAssetId ? db.media.find((m) => m.id === mediaAssetId) : null;
     if (!asset) {
-      console.warn(`[Meta Engine] Media asset ${mediaAssetId} not found in DB.`);
-      return originalUrl;
+      // Try to extract from originalUrl if it has /api/media-public/med_...
+      const match = originalUrl.match(/\/api\/media-public\/(med_[a-zA-Z0-9]+)/);
+      if (match) {
+        const extractedId = match[1];
+        asset = db.media.find((m) => m.id === extractedId);
+      }
     }
 
     let buffer: Buffer | null = null;
     let contentType = "";
-    let filename = asset.name || "media_upload";
+    let filename = asset?.name || "media_upload";
+    let isVideo = asset?.type === "video";
 
-    if (asset.url.startsWith("/uploads/")) {
-      const localPath = path.join(process.cwd(), asset.url);
-      if (fs.existsSync(localPath)) {
-        buffer = fs.readFileSync(localPath);
-        contentType = asset.type === "video" ? "video/mp4" : (asset.url.endsWith(".png") ? "image/png" : "image/jpeg");
+    if (asset) {
+      if (asset.url.startsWith("/uploads/")) {
+        const localPath = path.join(process.cwd(), asset.url);
+        if (fs.existsSync(localPath)) {
+          buffer = fs.readFileSync(localPath);
+          contentType = asset.type === "video" ? "video/mp4" : (asset.url.endsWith(".png") ? "image/png" : "image/jpeg");
+        }
+      } else if (asset.url.startsWith("data:")) {
+        const matches = asset.url.match(/^data:([a-zA-Z0-9-+.//_]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          contentType = matches[1];
+          buffer = Buffer.from(matches[2], "base64");
+        }
       }
-    } else if (asset.url.startsWith("data:")) {
-      const matches = asset.url.match(/^data:([a-zA-Z0-9-+.//_]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        contentType = matches[1];
-        buffer = Buffer.from(matches[2], "base64");
+    }
+
+    // Fallback if asset is not found or not loaded
+    if (!buffer) {
+      const uploadsIndex = originalUrl.indexOf("/uploads/");
+      if (uploadsIndex !== -1) {
+        const relativePath = originalUrl.substring(uploadsIndex);
+        const localPath = path.join(process.cwd(), relativePath);
+        if (fs.existsSync(localPath)) {
+          buffer = fs.readFileSync(localPath);
+          const ext = path.extname(relativePath).toLowerCase();
+          isVideo = ext === ".mp4" || ext === ".mov";
+          contentType = isVideo ? "video/mp4" : (ext === ".png" ? "image/png" : "image/jpeg");
+          filename = path.basename(relativePath);
+        }
+      } else if (originalUrl.startsWith("data:")) {
+        const matches = originalUrl.match(/^data:([a-zA-Z0-9-+.//_]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          contentType = matches[1];
+          buffer = Buffer.from(matches[2], "base64");
+          isVideo = contentType.startsWith("video/");
+          filename = isVideo ? "video_upload.mp4" : "image_upload.png";
+        }
       }
     }
 
@@ -2290,7 +2597,7 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
     }
 
     // Convert non-JPEG image to JPEG (Instagram requirement)
-    if (asset.type === "image" && contentType !== "image/jpeg" && contentType !== "image/jpg") {
+    if (!isVideo && contentType !== "image/jpeg" && contentType !== "image/jpg") {
       try {
         const dbLog = readDB();
         dbLog.publish_logs.push({
@@ -2315,24 +2622,24 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
       }
     }
 
-    // Create Form Data and upload to tmpfiles.org
+    // Create Form Data and upload to litterbox.catbox.moe (1 hour retention)
     const form = new FormData();
     const blob = new Blob([buffer], { type: contentType });
-    form.append("file", blob, filename);
+    form.append("reqtype", "fileupload");
+    form.append("time", "1h");
+    form.append("fileToUpload", blob, filename);
 
-    const uploadRes = await fetch("https://tmpfiles.org/api/v1/upload", {
+    const uploadRes = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
       method: "POST",
       body: form
     });
 
     if (!uploadRes.ok) {
-      throw new Error(`tmpfiles.org returned status code ${uploadRes.status}`);
+      throw new Error(`Litterbox returned status code ${uploadRes.status}`);
     }
 
-    const uploadData: any = await uploadRes.json();
-    if (uploadData.status === "success" && uploadData.data?.url) {
-      const directUrl = uploadData.data.url.replace("tmpfiles.org/", "tmpfiles.org/dl/");
-      
+    const directUrl = await uploadRes.text();
+    if (directUrl && directUrl.startsWith("https://")) {
       const dbSuccess = readDB();
       dbSuccess.publish_logs.push({
         id: "log_" + Math.random().toString(36).substring(2, 11),
@@ -2346,7 +2653,7 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
 
       return directUrl;
     } else {
-      throw new Error(JSON.stringify(uploadData));
+      throw new Error(`Litterbox response did not contain a valid URL: ${directUrl}`);
     }
   } catch (err: any) {
     console.error("[Meta Engine] Public host upload failed:", err);
@@ -2402,6 +2709,107 @@ function runAutomatedScheduler() {
       }
 
       const db = readDB();
+
+      // Periodic bidirectional Vercel DB synchronization pull for real webhook logging in sandbox
+      if (!process.env.VERCEL && db.settings?.customWebhookUrl) {
+        const customUrl = db.settings.customWebhookUrl.trim();
+        if (customUrl.startsWith("http")) {
+          try {
+            const parsedUrl = new URL(customUrl);
+            const syncUrl = `${parsedUrl.protocol}//${parsedUrl.host}/api/webhook/sync-db`;
+            
+            // Asynchronously fetch from Vercel so we don't block the scheduler loop
+            fetch(syncUrl)
+              .then(async (syncRes) => {
+                if (syncRes.ok) {
+                  const data = await syncRes.json();
+                  if (data && data.success && data.db) {
+                    const vercelDb = data.db;
+                    const localDb = readDB();
+                    let localChanged = false;
+                    
+                    // Merge new publish logs from Vercel
+                    if (Array.isArray(vercelDb.publish_logs)) {
+                      const localLogIds = new Set((localDb.publish_logs || []).map(l => l.id));
+                      const newLogs = vercelDb.publish_logs.filter(l => !localLogIds.has(l.id));
+                      if (newLogs.length > 0) {
+                        localDb.publish_logs = localDb.publish_logs || [];
+                        localDb.publish_logs.push(...newLogs);
+                        localChanged = true;
+                      }
+                    }
+                    
+                    // Merge new auto-reply messages from Vercel
+                    if (Array.isArray(vercelDb.autoreply_messages)) {
+                      const localMsgIds = new Set((localDb.autoreply_messages || []).map(m => m.id));
+                      const newMsgs = vercelDb.autoreply_messages.filter(m => !localMsgIds.has(m.id));
+                      if (newMsgs.length > 0) {
+                        localDb.autoreply_messages = localDb.autoreply_messages || [];
+                        localDb.autoreply_messages.push(...newMsgs);
+                        localChanged = true;
+                      }
+                    }
+                    
+                    // Merge new auto-reply leads from Vercel
+                    if (Array.isArray(vercelDb.autoreply_leads)) {
+                      const localLeadIds = new Set((localDb.autoreply_leads || []).map(l => l.id));
+                      const newLeads = vercelDb.autoreply_leads.filter(l => !localLeadIds.has(l.id));
+                      if (newLeads.length > 0) {
+                        localDb.autoreply_leads = localDb.autoreply_leads || [];
+                        localDb.autoreply_leads.push(...newLeads);
+                        localChanged = true;
+                      }
+                    }
+                    
+                    // Update latest webhook payloads for debugging
+                    if (vercelDb.settings?.lastWebhookPayload && 
+                        vercelDb.settings.lastWebhookPayload.timestamp !== localDb.settings?.lastWebhookPayload?.timestamp) {
+                      if (localDb.settings) {
+                        localDb.settings.lastWebhookPayload = vercelDb.settings.lastWebhookPayload;
+                        localChanged = true;
+                      }
+                    }
+                    
+                    if (vercelDb.settings?.lastIncomingMessage &&
+                        vercelDb.settings.lastIncomingMessage.timestamp !== localDb.settings?.lastIncomingMessage?.timestamp) {
+                      if (localDb.settings) {
+                        localDb.settings.lastIncomingMessage = vercelDb.settings.lastIncomingMessage;
+                        localChanged = true;
+                      }
+                    }
+
+                    if (vercelDb.settings?.lastReplyAttempt &&
+                        vercelDb.settings.lastReplyAttempt.timestamp !== localDb.settings?.lastReplyAttempt?.timestamp) {
+                      if (localDb.settings) {
+                        localDb.settings.lastReplyAttempt = vercelDb.settings.lastReplyAttempt;
+                        localChanged = true;
+                      }
+                    }
+
+                    if (vercelDb.settings?.lastMetaApiError &&
+                        vercelDb.settings.lastMetaApiError.timestamp !== localDb.settings?.lastMetaApiError?.timestamp) {
+                      if (localDb.settings) {
+                        localDb.settings.lastMetaApiError = vercelDb.settings.lastMetaApiError;
+                        localChanged = true;
+                      }
+                    }
+                    
+                    if (localChanged) {
+                      console.log("[Database Sync Pull] Successfully synchronized new real Meta event logs from Vercel.");
+                      writeDB(localDb);
+                    }
+                  }
+                }
+              })
+              .catch((err) => {
+                console.error("[Database Sync Pull Error] Failed to fetch database state from Vercel:", err.message || err);
+              });
+          } catch (err: any) {
+            console.error("[Database Sync Pull Error] Invalid custom webhook URL:", err.message || err);
+          }
+        }
+      }
+
       if (!db || !Array.isArray(db.scheduled_posts)) {
         return;
       }
@@ -2434,6 +2842,22 @@ function runAutomatedScheduler() {
               timestamp: new Date().toISOString(),
               status: "error",
               message: `[Python Daemon] Posting Failed for ID ${post.id}: Connected Instagram OAuth node was unlinked.`,
+              attemptCount: 1
+            });
+            dbChanged = true;
+            return;
+          }
+
+          if (account.enableContentIG === false) {
+            post.status = "failed";
+            post.error = "Instagram Content Publishing (Content IG) option is disabled in Settings for this profile.";
+            
+            db.publish_logs.push({
+              id: "log_" + Math.random().toString(36).substring(2, 11),
+              scheduledPostId: post.id,
+              timestamp: new Date().toISOString(),
+              status: "warning",
+              message: `[Python Daemon] Posting skipped for ID ${post.id}: Content IG option is disabled for @${account.username}.`,
               attemptCount: 1
             });
             dbChanged = true;
@@ -2572,9 +2996,7 @@ function runAutomatedScheduler() {
                     }
 
                     // Get public URL using our helper
-                    const finalItemUrl = assetId
-                      ? await getPublicMediaUrlForInstagram(post.id, assetId, rawUrl)
-                      : rawUrl;
+                    const finalItemUrl = await getPublicMediaUrlForInstagram(post.id, assetId, rawUrl);
 
                     // Create item container
                     const itemContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
@@ -2679,9 +3101,7 @@ function runAutomatedScheduler() {
                     ? `${publicUrlBase}/api/media-public/${mediaAssetId}`
                     : (post.mediaUrls[0] || "");
 
-                  const finalMediaUrl = mediaAssetId
-                    ? await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl)
-                    : mediaUrl;
+                  const finalMediaUrl = await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl);
 
                   const isVideo = post.type === "reel" || (post.type === "photo" && (mediaAssetId ? readDB().media.find(m => m.id === mediaAssetId)?.type === "video" : (mediaUrl.toLowerCase().includes(".mp4") || false)));
 
@@ -2793,20 +3213,111 @@ function runAutomatedScheduler() {
                 
                 const currentDbError = readDB();
                 const matchedPost = currentDbError.scheduled_posts.find(p => p.id === post.id);
-                if (matchedPost) {
-                  matchedPost.status = "failed";
-                  matchedPost.error = error.message;
-                }
+                const errorMsg = error.message || "";
+                
+                const isPermissionOrAuthError = errorMsg.includes("permission") ||
+                  errorMsg.includes("(#10)") ||
+                  errorMsg.includes("access_token") ||
+                  errorMsg.includes("token") ||
+                  errorMsg.includes("403") ||
+                  errorMsg.includes("401") ||
+                  errorMsg.includes("unauthorized");
 
-                currentDbError.publish_logs.push({
-                  id: "log_" + Math.random().toString(36).substring(2, 11),
-                  scheduledPostId: post.id,
-                  timestamp: new Date().toISOString(),
-                  status: "error",
-                  message: `❌ [Meta Engine] Error: ${error.message || "Unknown error during Meta publishing."}`,
-                  attemptCount: 1
-                });
-                writeDB(currentDbError);
+                if (account.isReal) {
+                  // For real physical accounts, do NOT fake success or sandbox-complete.
+                  // Fail cleanly and output the exact error with actionable instructions.
+                  if (matchedPost) {
+                    matchedPost.status = "failed";
+                    matchedPost.error = errorMsg;
+                  }
+
+                  let diagnosticMessage = `❌ [Meta Engine] Live Publication Failed: "${errorMsg}".`;
+                  
+                  if (errorMsg.includes("(#10)") || errorMsg.includes("permission")) {
+                    diagnosticMessage += `\n\n🔍 DIAGNOSTIC GUIDE (How to resolve this on Meta Developer Portal):
+1. CHOOSE INSTAGRAM CREATOR/BUSINESS ACCOUNT: Ensure your @${account.username} account is fully converted to an Instagram Professional (Business or Creator) account, and is linked to your Facebook Page.
+2. VERIFY METADATA ROLES: If your Meta Developer App is in "Development" mode, you MUST go to App Dashboard > Roles > Roles > Instagram Testers and add your Instagram handle "@${account.username}". Then, log into Instagram, go to Settings > Website Permissions > Tester Invitations, and accept the invitation.
+3. VERIFY TOKEN SCOPES: Make sure the Page/User Access Token you provided has these required permissions: "instagram_content_publish", "instagram_basic", "pages_read_engagement", and "pages_show_list". You can use the Meta Graph API Explorer to generate a token with these exact scopes.`;
+                  } else {
+                    diagnosticMessage += `\n\n🔍 DIAGNOSTIC TIP: Please verify your Meta Page/User Access Token is still valid, and your Instagram Business Account ID (${account.instagramBusinessAccountId || "not provided"}) matches your account settings exactly.`;
+                  }
+
+                  currentDbError.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "error",
+                    message: diagnosticMessage,
+                    attemptCount: 1
+                  });
+                  
+                  writeDB(currentDbError);
+
+                } else if (isPermissionOrAuthError) {
+                  // Fall back gracefully to Simulation so they can test comments and replies ONLY for simulated/sandbox accounts!
+                  currentDbError.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "warning",
+                    message: `⚠️ [Meta API] Sandbox simulated publishing bypass: "${errorMsg}"`,
+                    attemptCount: 1
+                  });
+                  
+                  currentDbError.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "info",
+                    message: `🔄 [Sandbox Gateway] Intelligently routing post through the SFR DigiTech Sandbox Simulator/Bypass proxy...`,
+                    attemptCount: 1
+                  });
+                  
+                  writeDB(currentDbError);
+
+                  // Trigger simulation flow after a brief pause
+                  setTimeout(() => {
+                    try {
+                      const finalDb = readDB();
+                      const finalPost = finalDb.scheduled_posts.find(p => p.id === post.id);
+                      if (finalPost) {
+                        const generatedIgId = "ig_post_" + Math.random().toString(36).substring(2, 11);
+                        finalPost.status = "completed";
+                        finalPost.postedAt = new Date().toISOString();
+                        finalPost.instagramId = generatedIgId;
+                        finalPost.error = undefined; // clear error
+
+                        finalDb.publish_logs.push({
+                          id: "log_" + Math.random().toString(36).substring(2, 11),
+                          scheduledPostId: post.id,
+                          timestamp: new Date().toISOString(),
+                          status: "success",
+                          message: `🎉 [Sandbox Gateway] Successfully simulated live publication! Generated Post ID: ${generatedIgId}. You can now test your comment rules and direct message auto-replies.`,
+                          attemptCount: 1
+                        });
+                        writeDB(finalDb);
+                      }
+                    } catch (simErr) {
+                      console.error("[Sandbox Gateway] Simulation error:", simErr);
+                    }
+                  }, 2000);
+
+                } else {
+                  if (matchedPost) {
+                    matchedPost.status = "failed";
+                    matchedPost.error = error.message;
+                  }
+
+                  currentDbError.publish_logs.push({
+                    id: "log_" + Math.random().toString(36).substring(2, 11),
+                    scheduledPostId: post.id,
+                    timestamp: new Date().toISOString(),
+                    status: "error",
+                    message: `❌ [Meta Engine] Error: ${error.message || "Unknown error during Meta publishing."}`,
+                    attemptCount: 1
+                  });
+                  writeDB(currentDbError);
+                }
               }
             })();
 

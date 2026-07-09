@@ -12,6 +12,7 @@ interface OAuthModalProps {
     isReal?: boolean;
     instagramBusinessAccountId?: string;
     accessToken?: string;
+    messagingAccessToken?: string;
   }) => void;
 }
 
@@ -29,6 +30,7 @@ export default function OAuthModal({ isOpen, onClose, onConnect }: OAuthModalPro
   const [isRealIG, setIsRealIG] = useState(false);
   const [igBusinessId, setIgBusinessId] = useState("");
   const [igAccessToken, setIgAccessToken] = useState("");
+  const [igMessagingToken, setIgMessagingToken] = useState("");
   const [showHelp, setShowHelp] = useState(false);
 
   if (!isOpen) return null;
@@ -57,7 +59,8 @@ export default function OAuthModal({ isOpen, onClose, onConnect }: OAuthModalPro
             profilePicture: `https://api.dicebear.com/7.x/identicon/svg?seed=${userStr}`,
             isReal: isRealIG,
             instagramBusinessAccountId: isRealIG ? igBusinessId.trim() : "",
-            accessToken: isRealIG ? igAccessToken.trim() : ""
+            accessToken: isRealIG ? igAccessToken.trim() : "",
+            messagingAccessToken: isRealIG ? igMessagingToken.trim() : ""
           });
         }
       } else {
@@ -83,6 +86,7 @@ export default function OAuthModal({ isOpen, onClose, onConnect }: OAuthModalPro
       setIsRealIG(false);
       setIgBusinessId("");
       setIgAccessToken("");
+      setIgMessagingToken("");
       onClose();
     }, 1500);
   };
@@ -306,34 +310,41 @@ export default function OAuthModal({ isOpen, onClose, onConnect }: OAuthModalPro
                         </p>
                       </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center space-x-1">
-                          <Lock size={12} className="text-[#1877F2]" />
-                          <span>Meta Page/User Access Token</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={igAccessToken}
-                          onChange={(e) => setIgAccessToken(e.target.value)}
-                          placeholder="e.g. EAAC..."
-                          className="w-full bg-[#09090b] border border-[#27272a] rounded-xl px-4 py-3 text-xs font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-[#1877F2]"
-                          required
-                        />
-                        <p className="text-[9px] text-zinc-500 leading-normal font-mono">
-                          Requires <code className="text-zinc-400">instagram_content_publish</code>, <code className="text-zinc-400">instagram_basic</code>, and <code className="text-zinc-400">pages_show_list</code> permissions.
-                        </p>
-                        {igAccessToken.trim().toUpperCase().startsWith("IGAA") && (
-                          <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded-xl text-[10px] leading-normal font-mono mt-2">
-                            <span className="font-bold block uppercase tracking-wide text-amber-300">⚠️ Instagram Basic Token (Publish-Only)</span>
-                            You entered an Instagram Basic Display/Login token (starts with <code className="text-white">IGAA...</code>).
-                            <br className="mt-1.5" />
-                            • <strong>Content Publishing:</strong> Fully supported!
-                            <br />
-                            • <strong>Auto-Replies / Direct Messages:</strong> <span className="text-red-400 font-bold">NOT SUPPORTED</span>. Meta blocks webhooks and automated messaging for Basic tokens.
-                            <br className="mt-1.5" />
-                            To automate real DMs and comments in real-time, you must connect an <strong>Instagram Professional (Business/Creator) Account</strong> using a <strong>Facebook Page Access Token</strong> (starts with <code className="text-white">EAA...</code>).
-                          </div>
-                        )}
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center space-x-1">
+                            <Lock size={12} className="text-[#E1306C]" />
+                            <span>1. Content Publishing Token (Instagram - IGAA)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={igAccessToken}
+                            onChange={(e) => setIgAccessToken(e.target.value)}
+                            placeholder="Paste your IGAA... token here (for scheduling/publishing)"
+                            className="w-full bg-[#09090b] border border-[#27272a] rounded-xl px-4 py-3 text-xs font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-[#E1306C]"
+                            required
+                          />
+                          <p className="text-[9px] text-zinc-500 leading-normal font-mono">
+                            Used for publishing posts, single images, carousels, and reels. Typically starts with <code className="text-zinc-400">IGAA...</code>.
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider flex items-center space-x-1">
+                            <Lock size={12} className="text-[#1877F2]" />
+                            <span>2. Auto-Replies & Direct Messages Token (Page/User - EAA)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={igMessagingToken}
+                            onChange={(e) => setIgMessagingToken(e.target.value)}
+                            placeholder="Paste your EAA... or EAAT... token here (for Messenger/DMs)"
+                            className="w-full bg-[#09090b] border border-[#27272a] rounded-xl px-4 py-3 text-xs font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-[#1877F2]"
+                          />
+                          <p className="text-[9px] text-zinc-500 leading-normal font-mono">
+                            Used to automate direct messages (DMs), webhook listening, and auto-responses. Typically starts with <code className="text-zinc-400">EAA...</code>.
+                          </p>
+                        </div>
                       </div>
 
                       {/* Interactive Help Guide Accordion */}

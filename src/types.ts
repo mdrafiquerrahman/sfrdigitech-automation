@@ -12,10 +12,13 @@ export interface InstagramAccount {
   displayName: string;
   profilePicture: string;
   accessToken: string; // encrypted
+  messagingAccessToken?: string; // page access token
   isConnected: boolean;
   connectedAt: string;
   isReal?: boolean;
   instagramBusinessAccountId?: string;
+  enableContentIG?: boolean;
+  enableMessageEA?: boolean;
 }
 
 export interface MediaAsset {

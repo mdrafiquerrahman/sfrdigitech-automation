@@ -37,6 +37,21 @@ export default function DashboardOverview({
   const [isLoading, setIsLoading] = useState(true);
   const [disconnectConfirmId, setDisconnectConfirmId] = useState<string | null>(null);
 
+  const handleToggleFeature = async (accountId: string, field: "enableContentIG" | "enableMessageEA", currentValue: boolean) => {
+    try {
+      const res = await fetch(`/api/accounts/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: !currentValue })
+      });
+      if (res.ok) {
+        onRefresh();
+      }
+    } catch (err) {
+      console.error(`Failed to toggle ${field}:`, err);
+    }
+  };
+
   const fetchAnalytics = async () => {
     setIsLoading(true);
     try {
@@ -269,6 +284,29 @@ export default function DashboardOverview({
                         <div className="text-[8px] text-emerald-400 font-bold uppercase tracking-wider font-mono flex items-center mt-0.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1 shrink-0" />
                           <span>Connected & Active</span>
+                        </div>
+                        
+                        {/* Capabilities Toggles */}
+                        <div className="flex items-center space-x-3 mt-2.5 pt-2 border-t border-[#27272a]/40">
+                          <label className="flex items-center space-x-1.5 cursor-pointer text-[9px] font-bold font-mono uppercase text-zinc-400 hover:text-white select-none" title="Configure Instagram Auto-Posting and Scheduling">
+                            <input
+                              type="checkbox"
+                              checked={acc.enableContentIG !== false}
+                              onChange={() => handleToggleFeature(acc.id, "enableContentIG", acc.enableContentIG !== false)}
+                              className="w-3.5 h-3.5 rounded bg-zinc-900 border-zinc-700 text-[#E1306C] focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#E1306C]"
+                            />
+                            <span className={acc.enableContentIG !== false ? "text-[#E1306C]" : "text-zinc-500"}>Content IG</span>
+                          </label>
+
+                          <label className="flex items-center space-x-1.5 cursor-pointer text-[9px] font-bold font-mono uppercase text-zinc-400 hover:text-white select-none" title="Configure AI Auto-Reply Brain & DMs">
+                            <input
+                              type="checkbox"
+                              checked={acc.enableMessageEA !== false}
+                              onChange={() => handleToggleFeature(acc.id, "enableMessageEA", acc.enableMessageEA !== false)}
+                              className="w-3.5 h-3.5 rounded bg-zinc-900 border-zinc-700 text-violet-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-violet-500"
+                            />
+                            <span className={acc.enableMessageEA !== false ? "text-violet-400" : "text-zinc-500"}>Message EA</span>
+                          </label>
                         </div>
                       </div>
                     </div>

@@ -189,6 +189,7 @@ export default function App() {
     isReal?: boolean;
     instagramBusinessAccountId?: string;
     accessToken?: string;
+    messagingAccessToken?: string;
   }) => {
     try {
       const res = await fetch("/api/connect-oauth", {
