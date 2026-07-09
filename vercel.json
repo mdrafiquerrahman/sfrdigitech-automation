@@ -5,6 +5,12 @@
       "includeFiles": "posts_db.json"
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "* * * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",

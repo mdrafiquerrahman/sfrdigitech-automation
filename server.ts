@@ -1847,6 +1847,23 @@ app.post("/api/autoreply/simulate", async (req, res) => {
 // --- REAL INSTAGRAM WEBHOOK INTEGRATION ENDPOINTS ---
 
 // GET /api/webhook/sync-db (Pull database state from Vercel to local sandbox)
+app.get("/api/cron", async (req, res) => {
+  try {
+    console.log("[Vercel Cron Trigger] Trigger received. Executing scheduler tick...");
+    await executeSchedulerTick(true);
+    res.json({
+      success: true,
+      message: "Vercel Cron triggered scheduler tick executed successfully."
+    });
+  } catch (err: any) {
+    console.error("[Vercel Cron Trigger Error] Failed to execute scheduler tick:", err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message || "Failed to execute scheduler tick via Vercel Cron."
+    });
+  }
+});
+
 app.get("/api/webhook/sync-db", (req, res) => {
   const db = readDB();
   res.json({ success: true, db });
@@ -2563,38 +2580,95 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
       }
     }
 
-    // Create Form Data and upload to litterbox.catbox.moe (1 hour retention)
-    const form = new FormData();
-    const blob = new Blob([buffer], { type: contentType });
-    form.append("reqtype", "fileupload");
-    form.append("time", "1h");
-    form.append("fileToUpload", blob, filename);
+    // Try to upload to Litterbox first (temporary 1-hour storage), with fallback to Catbox (permanent) to guarantee high availability and proper headers!
+    let directUrl = "";
+    let serviceUsed = "";
 
-    const uploadRes = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
-      method: "POST",
-      body: form
-    });
+    try {
+      const dbUp = readDB();
+      dbUp.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: postId,
+        timestamp: new Date().toISOString(),
+        status: "info",
+        message: `[Meta Engine] Attempting media upload to Primary public host (litterbox.catbox.moe)...`,
+        attemptCount: 1
+      });
+      writeDB(dbUp);
 
-    if (!uploadRes.ok) {
-      throw new Error(`Litterbox returned status code ${uploadRes.status}`);
+      const form = new FormData();
+      const blob = new Blob([buffer], { type: contentType });
+      form.append("reqtype", "fileupload");
+      form.append("time", "1h");
+      form.append("fileToUpload", blob, filename);
+
+      const uploadRes = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+        method: "POST",
+        body: form
+      });
+
+      if (uploadRes.ok) {
+        const resText = await uploadRes.text();
+        if (resText && resText.startsWith("https://")) {
+          directUrl = resText.trim();
+          serviceUsed = "litterbox.catbox.moe";
+        }
+      }
+    } catch (litErr: any) {
+      console.warn("[Meta Engine] Primary public host upload to litterbox.catbox.moe failed:", litErr.message || litErr);
     }
 
-    const directUrl = await uploadRes.text();
-    if (directUrl && directUrl.startsWith("https://")) {
+    if (!directUrl) {
+      // Fallback to Catbox (catbox.moe)
+      try {
+        const dbUp2 = readDB();
+        dbUp2.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: postId,
+          timestamp: new Date().toISOString(),
+          status: "info",
+          message: `⚠️ [Meta Engine] Primary public host upload failed. Trying Secondary public host (catbox.moe)...`,
+          attemptCount: 1
+        });
+        writeDB(dbUp2);
+
+        const form = new FormData();
+        const blob = new Blob([buffer], { type: contentType });
+        form.append("reqtype", "fileupload");
+        form.append("fileToUpload", blob, filename);
+
+        const uploadRes = await fetch("https://catbox.moe/user/api.php", {
+          method: "POST",
+          body: form
+        });
+
+        if (uploadRes.ok) {
+          const resText = await uploadRes.text();
+          if (resText && resText.startsWith("https://")) {
+            directUrl = resText.trim();
+            serviceUsed = "catbox.moe";
+          }
+        }
+      } catch (catErr: any) {
+        console.warn("[Meta Engine] Secondary public host upload to catbox.moe failed:", catErr.message || catErr);
+      }
+    }
+
+    if (directUrl) {
       const dbSuccess = readDB();
       dbSuccess.publish_logs.push({
         id: "log_" + Math.random().toString(36).substring(2, 11),
         scheduledPostId: postId,
         timestamp: new Date().toISOString(),
         status: "success",
-        message: `[Meta Engine] Public bypass proxy upload succeeded! Media is now fully accessible by Meta's crawler at: ${directUrl}`,
+        message: `[Meta Engine] Public bypass proxy upload succeeded using ${serviceUsed}! Media is now fully accessible by Meta's crawler at: ${directUrl}`,
         attemptCount: 1
       });
       writeDB(dbSuccess);
 
       return directUrl;
     } else {
-      throw new Error(`Litterbox response did not contain a valid URL: ${directUrl}`);
+      throw new Error("Both primary and secondary public file hosts failed to store the image.");
     }
   } catch (err: any) {
     console.error("[Meta Engine] Public host upload failed:", err);
@@ -2611,6 +2685,442 @@ async function getPublicMediaUrlForInstagram(postId: string, mediaAssetId: strin
     writeDB(dbErr);
     
     return originalUrl;
+  }
+}
+
+// --- SHARED ROBUST INSTAGRAM PUBLISHING ROUTINE ---
+async function publishRealPostToMeta(postId: string, accountId: string, publicUrlBase: string): Promise<void> {
+  const db = readDB();
+  const post = db.scheduled_posts.find(p => p.id === postId);
+  const account = db.instagram_accounts.find(a => a.id === accountId);
+  if (!post || !account) return;
+
+  try {
+    const isInstagramLoginToken = account.accessToken.trim().toUpperCase().startsWith("IGAA");
+    const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
+
+    let creationId = "";
+
+    const pollContainerStatus = async (containerId: string, label: string): Promise<void> => {
+      const checkUrl = `https://${graphHost}/v20.0/${containerId}?fields=status_code&access_token=${account.accessToken}`;
+      for (let i = 0; i < 20; i++) {
+        const attemptNum = i + 1;
+        try {
+          const statusRes = await fetch(checkUrl);
+          const statusText = await statusRes.text();
+          let statusData: any = {};
+          try {
+            statusData = JSON.parse(statusText);
+          } catch (pe) {
+            statusData = { rawText: statusText.substring(0, 500) };
+          }
+
+          console.log(`[Meta Engine] Container (${containerId}) Status (Attempt ${attemptNum}/20):`, statusData);
+
+          // Write a detailed database log for this attempt so the user has full diagnostic transparency in their UI!
+          const pollDb = readDB();
+          pollDb.publish_logs.push({
+            id: "log_" + Math.random().toString(36).substring(2, 11),
+            scheduledPostId: post.id,
+            timestamp: new Date().toISOString(),
+            status: "info",
+            message: `[Meta Engine] Polling status for ${label} (${containerId}) - Attempt ${attemptNum}/20... Response: ${JSON.stringify(statusData)}`,
+            attemptCount: attemptNum
+          });
+          writeDB(pollDb);
+
+          if (statusRes.ok) {
+            const statusCode = statusData.status_code || statusData.status;
+            if (statusCode === "FINISHED") {
+              const successDb = readDB();
+              successDb.publish_logs.push({
+                id: "log_" + Math.random().toString(36).substring(2, 11),
+                scheduledPostId: post.id,
+                timestamp: new Date().toISOString(),
+                status: "success",
+                message: `[Meta Engine] ${label} (${containerId}) is ready! Status: FINISHED`,
+                attemptCount: attemptNum
+              });
+              writeDB(successDb);
+              return;
+            }
+            if (statusCode === "ERROR" || statusData.error) {
+              const errMsg = statusData.error?.message || statusCode || "Unknown container error";
+              throw new Error(errMsg);
+            }
+          } else {
+            throw new Error(`Meta API returned HTTP status ${statusRes.status}: ${statusText.substring(0, 300)}`);
+          }
+        } catch (e: any) {
+          console.error(`[Container Status Check Error] for ${label}:`, e.message || e);
+          
+          // Log errors to the database so they appear in the UI queue log list
+          const errDb = readDB();
+          errDb.publish_logs.push({
+            id: "log_" + Math.random().toString(36).substring(2, 11),
+            scheduledPostId: post.id,
+            timestamp: new Date().toISOString(),
+            status: "warning",
+            message: `⚠️ [Meta Engine] Polling check failed for ${label} (${containerId}) - Attempt ${attemptNum}/20: ${e.message || e}`,
+            attemptCount: attemptNum
+          });
+          writeDB(errDb);
+        }
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+      throw new Error(`Timeout waiting for ${label} (${containerId}) to become FINISHED.`);
+    };
+
+    if (post.type === "carousel") {
+      const childrenContainerIds: string[] = [];
+      const totalAssets = Math.max(post.mediaAssetIds?.length || 0, post.mediaUrls?.length || 0);
+
+      const dbForAssets = readDB();
+      for (let i = 0; i < totalAssets; i++) {
+        const assetId = post.mediaAssetIds?.[i];
+        const rawUrl = assetId
+          ? `${publicUrlBase}/api/media-public/${assetId}`
+          : (post.mediaUrls?.[i] || "");
+
+        if (!rawUrl) continue;
+
+        // Determine if it's video or image
+        let isAssetVideo = false;
+        if (assetId) {
+          const mediaObj = dbForAssets.media.find(m => m.id === assetId);
+          if (mediaObj && mediaObj.type === "video") {
+            isAssetVideo = true;
+          }
+        } else {
+          const lowercaseUrl = rawUrl.toLowerCase();
+          if (lowercaseUrl.includes(".mp4") || lowercaseUrl.includes(".mov") || lowercaseUrl.includes(".avi") || lowercaseUrl.includes(".webm")) {
+            isAssetVideo = true;
+          }
+        }
+
+        // Get public URL using our helper
+        const finalItemUrl = await getPublicMediaUrlForInstagram(post.id, assetId, rawUrl);
+
+        // Create item container
+        const itemContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+        const itemPayload: any = {
+          access_token: account.accessToken,
+          is_carousel_item: true
+        };
+
+        if (isAssetVideo) {
+          itemPayload.media_type = "VIDEO";
+          itemPayload.video_url = finalItemUrl;
+        } else {
+          itemPayload.image_url = finalItemUrl;
+        }
+
+        const itemDb = readDB();
+        itemDb.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "info",
+          message: `[Meta Engine] Step 1.1: Requesting item container ${i + 1}/${totalAssets} (${isAssetVideo ? "Video" : "Image"})...`,
+          attemptCount: 1
+        });
+        writeDB(itemDb);
+
+        const itemRes = await fetch(itemContainerUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(itemPayload)
+        });
+
+        const itemData = await itemRes.json();
+        if (!itemRes.ok || !itemData.id) {
+          const errMsg = itemData.error?.message || JSON.stringify(itemData);
+          throw new Error(`Carousel Item ${i + 1} Container Creation Failed: ${errMsg}`);
+        }
+
+        const itemContainerId = itemData.id;
+        childrenContainerIds.push(itemContainerId);
+
+        const itemDb2 = readDB();
+        itemDb2.publish_logs.push({
+          id: "log_" + Math.random().toString(36).substring(2, 11),
+          scheduledPostId: post.id,
+          timestamp: new Date().toISOString(),
+          status: "info",
+          message: `[Meta Engine] Step 1.2: Waiting for item container ${i + 1}/${totalAssets} processing...`,
+          attemptCount: 1
+        });
+        writeDB(itemDb2);
+
+        await pollContainerStatus(itemContainerId, `Carousel Item Container ${i + 1}`);
+      }
+
+      // Create Carousel Container
+      const carouselContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+      const carouselPayload = {
+        media_type: "CAROUSEL",
+        caption: post.caption,
+        children: childrenContainerIds,
+        access_token: account.accessToken
+      };
+
+      const currentDb = readDB();
+      currentDb.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "info",
+        message: `[Meta Engine] Step 1.3: Creating Carousel Container with ${childrenContainerIds.length} items...`,
+        attemptCount: 1
+      });
+      writeDB(currentDb);
+
+      const carouselRes = await fetch(carouselContainerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(carouselPayload)
+      });
+
+      const carouselData = await carouselRes.json();
+      if (!carouselRes.ok || !carouselData.id) {
+        const errMsg = carouselData.error?.message || JSON.stringify(carouselData);
+        throw new Error(`Carousel Main Container Creation Failed: ${errMsg}`);
+      }
+
+      creationId = carouselData.id;
+
+      const currentDb2 = readDB();
+      currentDb2.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "success",
+        message: `[Meta Engine] Carousel Container created successfully on Meta servers! Container ID: ${creationId}`,
+        attemptCount: 1
+      });
+      writeDB(currentDb2);
+
+      await pollContainerStatus(creationId, "Main Carousel Container");
+
+    } else {
+      // Single Photo or Single Video/Reel
+      const mediaAssetId = post.mediaAssetIds?.[0];
+      const mediaUrl = mediaAssetId 
+        ? `${publicUrlBase}/api/media-public/${mediaAssetId}`
+        : (post.mediaUrls?.[0] || "");
+
+      const finalMediaUrl = await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl);
+
+      const isVideo = post.type === "reel" || (post.type === "photo" && (mediaAssetId ? readDB().media.find(m => m.id === mediaAssetId)?.type === "video" : (mediaUrl.toLowerCase().includes(".mp4") || false)));
+
+      const payload: any = {
+        caption: post.caption,
+        access_token: account.accessToken
+      };
+
+      if (post.type === "reel") {
+        payload.media_type = "REELS";
+        payload.video_url = finalMediaUrl;
+        payload.share_to_feed = true;
+      } else if (isVideo) {
+        payload.media_type = "VIDEO";
+        payload.video_url = finalMediaUrl;
+      } else {
+        payload.image_url = finalMediaUrl;
+      }
+
+      console.log("[Meta Engine] Creating Container with payload:", { ...payload, access_token: "REDACTED" });
+
+      const containerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
+      const containerRes = await fetch(containerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const containerData = await containerRes.json();
+      if (!containerRes.ok || !containerData.id) {
+        const errMsg = containerData.error?.message || JSON.stringify(containerData);
+        throw new Error(`Meta Container Creation Failed: ${errMsg}`);
+      }
+
+      creationId = containerData.id;
+
+      const currentDb2 = readDB();
+      currentDb2.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "success",
+        message: `[Meta Engine] Media Container created successfully on Meta servers! Container ID: ${creationId}`,
+        attemptCount: 1
+      });
+      writeDB(currentDb2);
+
+      await pollContainerStatus(
+        creationId, 
+        post.type === "reel" ? "Single Reel Container" : "Single Media Container"
+      );
+    }
+
+    // Phase 2: Publish the container
+    const publishUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media_publish`;
+    
+    const currentDb3 = readDB();
+    currentDb3.publish_logs.push({
+      id: "log_" + Math.random().toString(36).substring(2, 11),
+      scheduledPostId: post.id,
+      timestamp: new Date().toISOString(),
+      status: "info",
+      message: `[Meta Engine] Step 2: Requesting release handshake for creation_id ${creationId}...`,
+      attemptCount: 1
+    });
+    writeDB(currentDb3);
+
+    const publishRes = await fetch(publishUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creation_id: creationId,
+        access_token: account.accessToken
+      })
+    });
+
+    const publishData = await publishRes.json();
+
+    if (!publishRes.ok || !publishData.id) {
+      const errMsg = publishData.error?.message || JSON.stringify(publishData);
+      throw new Error(`Meta Publication Release Failed: ${errMsg}`);
+    }
+
+    const finalPostId = publishData.id;
+    console.log(`[Meta Engine] Real Post success! ID: ${finalPostId}`);
+
+    // Update Post state to completed
+    const currentDb4 = readDB();
+    const matchedPost = currentDb4.scheduled_posts.find(p => p.id === post.id);
+    if (matchedPost) {
+      matchedPost.status = "completed";
+      matchedPost.postedAt = new Date().toISOString();
+      matchedPost.instagramId = finalPostId;
+    }
+
+    currentDb4.publish_logs.push({
+      id: "log_" + Math.random().toString(36).substring(2, 11),
+      scheduledPostId: post.id,
+      timestamp: new Date().toISOString(),
+      status: "success",
+      message: `🎉 [Meta Engine] Post successfully published to LIVE Instagram page! Feed ID: ${finalPostId}`,
+      attemptCount: 1
+    });
+    writeDB(currentDb4);
+
+  } catch (error: any) {
+    console.error("[Meta Engine] Error posting:", error);
+    
+    const currentDbError = readDB();
+    const matchedPost = currentDbError.scheduled_posts.find(p => p.id === post.id);
+    const errorMsg = error.message || "";
+    
+    const isPermissionOrAuthError = errorMsg.includes("permission") ||
+      errorMsg.includes("(#10)") ||
+      errorMsg.includes("access_token") ||
+      errorMsg.includes("token") ||
+      errorMsg.includes("403") ||
+      errorMsg.includes("401") ||
+      errorMsg.includes("unauthorized");
+
+    if (account.isReal) {
+      if (matchedPost) {
+        matchedPost.status = "failed";
+        matchedPost.error = errorMsg;
+      }
+
+      let diagnosticMessage = `❌ [Meta Engine] Live Publication Failed: "${errorMsg}".`;
+      
+      if (errorMsg.includes("(#10)") || errorMsg.includes("permission")) {
+        diagnosticMessage += `\n\n🔍 DIAGNOSTIC GUIDE (How to resolve this on Meta Developer Portal):
+1. CHOOSE INSTAGRAM CREATOR/BUSINESS ACCOUNT: Ensure your @${account.username} account is fully converted to an Instagram Professional (Business or Creator) account, and is linked to your Facebook Page.
+2. VERIFY METADATA ROLES: If your Meta Developer App is in "Development" mode, you MUST go to App Dashboard > Roles > Roles > Instagram Testers and add your Instagram handle "@${account.username}". Then, log into Instagram, go to Settings > Website Permissions > Tester Invitations, and accept the invitation.
+3. VERIFY TOKEN SCOPES: Make sure the Page/User Access Token you provided has these required permissions: "instagram_content_publish", "instagram_basic", "pages_read_engagement", and "pages_show_list". You can use the Meta Graph API Explorer to generate a token with these exact scopes.`;
+      } else {
+        diagnosticMessage += `\n\n🔍 DIAGNOSTIC TIP: Please verify your Meta Page/User Access Token is still valid, and your Instagram Business Account ID (${account.instagramBusinessAccountId || "not provided"}) matches your account settings exactly.`;
+      }
+
+      currentDbError.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "error",
+        message: diagnosticMessage,
+        attemptCount: 1
+      });
+      
+      writeDB(currentDbError);
+
+    } else if (isPermissionOrAuthError) {
+      currentDbError.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "warning",
+        message: `⚠️ [Meta API] Sandbox simulated publishing bypass: "${errorMsg}"`,
+        attemptCount: 1
+      });
+      
+      currentDbError.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "info",
+        message: `🔄 [Sandbox Gateway] Intelligently routing post through the SFR DigiTech Sandbox Simulator/Bypass proxy...`,
+        attemptCount: 1
+      });
+      
+      writeDB(currentDbError);
+
+      setTimeout(() => {
+        try {
+          const finalDb = readDB();
+          const finalPost = finalDb.scheduled_posts.find(p => p.id === post.id);
+          if (finalPost) {
+            const generatedIgId = "ig_post_" + Math.random().toString(36).substring(2, 11);
+            finalPost.status = "completed";
+            finalPost.postedAt = new Date().toISOString();
+            finalPost.instagramId = generatedIgId;
+            finalPost.error = undefined;
+
+            finalDb.publish_logs.push({
+              id: "log_" + Math.random().toString(36).substring(2, 11),
+              scheduledPostId: post.id,
+              timestamp: new Date().toISOString(),
+              status: "success",
+              message: `🎉 [Sandbox Gateway] Successfully simulated live publication! Generated Post ID: ${generatedIgId}. You can now test your comment rules and direct message auto-replies.`,
+              attemptCount: 1
+            });
+            writeDB(finalDb);
+          }
+        } catch (simErr) {
+          console.error("[Sandbox Gateway] Simulation error:", simErr);
+        }
+      }, 2000);
+
+    } else {
+      if (matchedPost) {
+        matchedPost.status = "failed";
+        matchedPost.error = error.message;
+      }
+
+      currentDbError.publish_logs.push({
+        id: "log_" + Math.random().toString(36).substring(2, 11),
+        scheduledPostId: post.id,
+        timestamp: new Date().toISOString(),
+        status: "error",
+        message: `❌ [Meta Engine] Error: ${error.message || "Unknown error during Meta publishing."}`,
+        attemptCount: 1
+      });
+      writeDB(currentDbError);
+    }
   }
 }
 
@@ -2703,93 +3213,16 @@ async function executeSchedulerTick(isForce = false) {
           attemptCount: 1
         });
 
+        // Construct public image/video URL for Instagram's crawler to download
+        let publicUrlBase = db.settings?.appPublicUrl || "http://localhost:3000";
+        if (publicUrlBase && !publicUrlBase.includes("localhost") && !publicUrlBase.includes("127.0.0.1") && publicUrlBase.startsWith("http://")) {
+          publicUrlBase = publicUrlBase.replace("http://", "https://");
+        }
+
         // Fire-and-forget real publish call
-        (async () => {
-          try {
-            const isInstagramLoginToken = account.accessToken.trim().toUpperCase().startsWith("IGAA");
-            const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
-
-            const pollContainerStatus = async (containerId: string, accessToken: string): Promise<boolean> => {
-              for (let i = 0; i < 15; i++) {
-                try {
-                  const statusRes = await fetch(
-                    `https://${graphHost}/v20.0/${containerId}?fields=status_code,status,error&access_token=${accessToken}`
-                  );
-                  if (statusRes.ok) {
-                    const statusData = await statusRes.json();
-                    if (statusData.status_code === "FINISHED") return true;
-                    if (statusData.status_code === "ERROR" || statusData.error) {
-                      throw new Error(statusData.error?.message || statusData.status_code);
-                    }
-                  }
-                } catch (e) {
-                  console.error("[Container Status Check Error]:", e);
-                }
-                await new Promise((r) => setTimeout(r, 4000));
-              }
-              return false;
-            };
-
-            const mediaUrl = post.mediaUrls[0];
-            const containerRes = await fetch(
-              `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media?image_url=${encodeURIComponent(mediaUrl)}&caption=${encodeURIComponent(post.caption)}&access_token=${account.accessToken}`,
-              { method: "POST" }
-            );
-
-            const containerData = await containerRes.json();
-            if (!containerRes.ok || !containerData.id) {
-              throw new Error(containerData.error?.message || "Failed to create media container.");
-            }
-
-            const isFinished = await pollContainerStatus(containerData.id, account.accessToken);
-            if (!isFinished) throw new Error("Timeout waiting for container processing.");
-
-            const publishRes = await fetch(
-              `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media_publish?creation_id=${containerData.id}&access_token=${account.accessToken}`,
-              { method: "POST" }
-            );
-
-            const publishData = await publishRes.json();
-            if (!publishRes.ok || !publishData.id) {
-              throw new Error(publishData.error?.message || "Failed to publish container.");
-            }
-
-            const currentDb = readDB();
-            const activePost = currentDb.scheduled_posts.find((p) => p.id === post.id);
-            if (activePost) {
-              activePost.status = "completed";
-              activePost.postedAt = new Date().toISOString();
-              activePost.instagramId = publishData.id;
-
-              currentDb.publish_logs.push({
-                id: "log_" + Math.random().toString(36).substring(2, 11),
-                scheduledPostId: post.id,
-                timestamp: new Date().toISOString(),
-                status: "success",
-                message: `[Serverless Meta Engine] Published to live Feed successfully! Instagram Post ID: ${publishData.id}`,
-                attemptCount: 1
-              });
-              writeDB(currentDb);
-            }
-          } catch (err: any) {
-            console.error("[Serverless Meta Engine Error] Real publish failed:", err.message);
-            const currentDb = readDB();
-            const activePost = currentDb.scheduled_posts.find((p) => p.id === post.id);
-            if (activePost) {
-              activePost.status = "failed";
-              activePost.error = err.message;
-              currentDb.publish_logs.push({
-                id: "log_" + Math.random().toString(36).substring(2, 11),
-                scheduledPostId: post.id,
-                timestamp: new Date().toISOString(),
-                status: "error",
-                message: `[Serverless Meta Engine Error] Real publication failed: ${err.message}`,
-                attemptCount: 1
-              });
-              writeDB(currentDb);
-            }
-          }
-        })();
+        publishRealPostToMeta(post.id, account.id, publicUrlBase).catch((err) => {
+          console.error("[Serverless Meta Engine Error] Failed to run publishRealPostToMeta:", err);
+        });
 
       } else {
         // Run Simulated Publish
@@ -3033,440 +3466,9 @@ function runAutomatedScheduler() {
             }
 
             // Perform async execution to avoid blocking the main 10s tick loop
-            (async () => {
-              try {
-                // Determine API Host based on access token type
-                // Tokens starting with "IGAA" (Instagram Login) must use graph.instagram.com, others use graph.facebook.com
-                const isInstagramLoginToken = account.accessToken.trim().toUpperCase().startsWith("IGAA");
-                const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
-
-                let creationId = "";
-
-                // Helper to poll the status of a specific container until it's finished
-                const pollContainerStatus = async (
-                  containerId: string, 
-                  label: string
-                ): Promise<void> => {
-                  const checkUrl = `https://${graphHost}/v20.0/${containerId}?fields=status_code,status&access_token=${account.accessToken}`;
-                  const maxRetries = 20; // 20 retries * 5s = 100 seconds timeout
-                  const delayMs = 5000;
-
-                  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                    const db = readDB();
-                    db.publish_logs.push({
-                      id: "log_" + Math.random().toString(36).substring(2, 11),
-                      scheduledPostId: post.id,
-                      timestamp: new Date().toISOString(),
-                      status: "info",
-                      message: `[Meta Engine] Polling status for ${label} (${containerId}) - Attempt ${attempt}/${maxRetries}...`,
-                      attemptCount: 1
-                    });
-                    writeDB(db);
-
-                    try {
-                      const res = await fetch(checkUrl);
-                      const data = await res.json();
-                      console.log(`[Meta Engine] Container ${containerId} status check:`, data);
-
-                      const statusCode = data.status_code || data.status;
-
-                      if (statusCode === "FINISHED") {
-                        const successDb = readDB();
-                        successDb.publish_logs.push({
-                          id: "log_" + Math.random().toString(36).substring(2, 11),
-                          scheduledPostId: post.id,
-                          timestamp: new Date().toISOString(),
-                          status: "success",
-                          message: `[Meta Engine] ${label} (${containerId}) is ready! Status: ${statusCode}`,
-                          attemptCount: 1
-                        });
-                        writeDB(successDb);
-                        return; // Success, ready to proceed!
-                      }
-
-                      if (statusCode === "ERROR") {
-                        const errorMsg = data.error_message || data.error?.message || `Meta Container ${containerId} reports ERROR status.`;
-                        throw new Error(errorMsg);
-                      }
-
-                      if (statusCode === "EXPIRED") {
-                        throw new Error(`Meta Container ${containerId} status has EXPIRED.`);
-                      }
-
-                      // Still IN_PROGRESS, wait and retry
-                      await new Promise(resolve => setTimeout(resolve, delayMs));
-
-                    } catch (err: any) {
-                      console.error(`[Meta Engine] Error checking status for container ${containerId}:`, err);
-                      const isCriticalError = err.message && (
-                        err.message.includes("reports ERROR status") || 
-                        err.message.includes("has EXPIRED")
-                      );
-                      if (isCriticalError) {
-                        throw err;
-                      }
-                      if (attempt === maxRetries) {
-                        throw new Error(`Timeout waiting for ${label} (${containerId}) to be ready: ${err.message}`);
-                      }
-                      await new Promise(resolve => setTimeout(resolve, delayMs));
-                    }
-                  }
-
-                  throw new Error(`Timeout waiting for ${label} (${containerId}) to become FINISHED.`);
-                };
-
-                if (post.type === "carousel") {
-                  const childrenContainerIds: string[] = [];
-                  const totalAssets = Math.max(post.mediaAssetIds?.length || 0, post.mediaUrls?.length || 0);
-
-                  const dbForAssets = readDB();
-                  for (let i = 0; i < totalAssets; i++) {
-                    const assetId = post.mediaAssetIds?.[i];
-                    const rawUrl = assetId
-                      ? `${publicUrlBase}/api/media-public/${assetId}`
-                      : (post.mediaUrls?.[i] || "");
-
-                    if (!rawUrl) continue;
-
-                    // Determine if it's video or image
-                    let isAssetVideo = false;
-                    if (assetId) {
-                      const mediaObj = dbForAssets.media.find(m => m.id === assetId);
-                      if (mediaObj && mediaObj.type === "video") {
-                        isAssetVideo = true;
-                      }
-                    } else {
-                      const lowercaseUrl = rawUrl.toLowerCase();
-                      if (lowercaseUrl.includes(".mp4") || lowercaseUrl.includes(".mov") || lowercaseUrl.includes(".avi") || lowercaseUrl.includes(".webm")) {
-                        isAssetVideo = true;
-                      }
-                    }
-
-                    // Get public URL using our helper
-                    const finalItemUrl = await getPublicMediaUrlForInstagram(post.id, assetId, rawUrl);
-
-                    // Create item container
-                    const itemContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
-                    const itemPayload: any = {
-                      access_token: account.accessToken,
-                      is_carousel_item: true
-                    };
-
-                    if (isAssetVideo) {
-                      itemPayload.media_type = "VIDEO";
-                      itemPayload.video_url = finalItemUrl;
-                    } else {
-                      itemPayload.image_url = finalItemUrl;
-                    }
-
-                    const itemDb = readDB();
-                    itemDb.publish_logs.push({
-                      id: "log_" + Math.random().toString(36).substring(2, 11),
-                      scheduledPostId: post.id,
-                      timestamp: new Date().toISOString(),
-                      status: "info",
-                      message: `[Meta Engine] Step 1.1: Requesting item container ${i + 1}/${totalAssets} (${isAssetVideo ? "Video" : "Image"})...`,
-                      attemptCount: 1
-                    });
-                    writeDB(itemDb);
-
-                    const itemRes = await fetch(itemContainerUrl, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(itemPayload)
-                    });
-
-                    const itemData = await itemRes.json();
-                    if (!itemRes.ok || !itemData.id) {
-                      const errMsg = itemData.error?.message || JSON.stringify(itemData);
-                      throw new Error(`Meta Carousel Item Container Creation Failed (Item ${i + 1}): ${errMsg}`);
-                    }
-
-                    childrenContainerIds.push(itemData.id);
-                  }
-
-                  // Poll EACH child container until its status_code is "FINISHED"
-                  for (let i = 0; i < childrenContainerIds.length; i++) {
-                    await pollContainerStatus(
-                      childrenContainerIds[i], 
-                      `Carousel item container ${i + 1}/${childrenContainerIds.length}`
-                    );
-                  }
-
-                  // Create the main Carousel Container
-                  const carouselContainerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
-                  const carouselPayload = {
-                    media_type: "CAROUSEL",
-                    children: childrenContainerIds,
-                    caption: post.caption,
-                    access_token: account.accessToken
-                  };
-
-                  const mainDb = readDB();
-                  mainDb.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "info",
-                    message: `[Meta Engine] Step 1.2: Creating main CAROUSEL container with children IDs [${childrenContainerIds.join(", ")}]...`,
-                    attemptCount: 1
-                  });
-                  writeDB(mainDb);
-
-                  const carouselRes = await fetch(carouselContainerUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(carouselPayload)
-                  });
-
-                  const carouselData = await carouselRes.json();
-                  if (!carouselRes.ok || !carouselData.id) {
-                    const errMsg = carouselData.error?.message || JSON.stringify(carouselData);
-                    throw new Error(`Meta Carousel Container Creation Failed: ${errMsg}`);
-                  }
-
-                  creationId = carouselData.id;
-
-                  const currentDb2 = readDB();
-                  currentDb2.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "success",
-                    message: `[Meta Engine] Carousel Container created successfully on Meta servers! Container ID: ${creationId}`,
-                    attemptCount: 1
-                  });
-                  writeDB(currentDb2);
-
-                  // Poll the main Carousel Container status until FINISHED
-                  await pollContainerStatus(creationId, "Main Carousel Container");
-
-                } else {
-                  // Single Photo or Single Video/Reel
-                  const mediaAssetId = post.mediaAssetIds[0];
-                  const mediaUrl = mediaAssetId 
-                    ? `${publicUrlBase}/api/media-public/${mediaAssetId}`
-                    : (post.mediaUrls[0] || "");
-
-                  const finalMediaUrl = await getPublicMediaUrlForInstagram(post.id, mediaAssetId, mediaUrl);
-
-                  const isVideo = post.type === "reel" || (post.type === "photo" && (mediaAssetId ? readDB().media.find(m => m.id === mediaAssetId)?.type === "video" : (mediaUrl.toLowerCase().includes(".mp4") || false)));
-
-                  const payload: any = {
-                    caption: post.caption,
-                    access_token: account.accessToken
-                  };
-
-                  if (post.type === "reel") {
-                    payload.media_type = "REELS";
-                    payload.video_url = finalMediaUrl;
-                    payload.share_to_feed = true;
-                  } else if (isVideo) {
-                    payload.media_type = "VIDEO";
-                    payload.video_url = finalMediaUrl;
-                  } else {
-                    payload.image_url = finalMediaUrl;
-                  }
-
-                  console.log("[Meta Engine] Creating Container with payload:", { ...payload, access_token: "REDACTED" });
-
-                  const containerUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media`;
-                  const containerRes = await fetch(containerUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                  });
-
-                  const containerData = await containerRes.json();
-                  if (!containerRes.ok || !containerData.id) {
-                    const errMsg = containerData.error?.message || JSON.stringify(containerData);
-                    throw new Error(`Meta Container Creation Failed: ${errMsg}`);
-                  }
-
-                  creationId = containerData.id;
-
-                  const currentDb2 = readDB();
-                  currentDb2.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "success",
-                    message: `[Meta Engine] Media Container created successfully on Meta servers! Container ID: ${creationId}`,
-                    attemptCount: 1
-                  });
-                  writeDB(currentDb2);
-
-                  // Poll the main single container status until FINISHED
-                  await pollContainerStatus(
-                    creationId, 
-                    post.type === "reel" ? "Single Reel Container" : "Single Media Container"
-                  );
-                }
-
-                // Phase 2: Publish the container
-                const publishUrl = `https://${graphHost}/v20.0/${account.instagramBusinessAccountId}/media_publish`;
-                
-                const currentDb3 = readDB();
-                currentDb3.publish_logs.push({
-                  id: "log_" + Math.random().toString(36).substring(2, 11),
-                  scheduledPostId: post.id,
-                  timestamp: new Date().toISOString(),
-                  status: "info",
-                  message: `[Meta Engine] Step 2: Requesting release handshake for creation_id ${creationId}...`,
-                  attemptCount: 1
-                });
-                writeDB(currentDb3);
-
-                const publishRes = await fetch(publishUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    creation_id: creationId,
-                    access_token: account.accessToken
-                  })
-                });
-
-                const publishData = await publishRes.json();
-
-                if (!publishRes.ok || !publishData.id) {
-                  const errMsg = publishData.error?.message || JSON.stringify(publishData);
-                  throw new Error(`Meta Publication Release Failed: ${errMsg}`);
-                }
-
-                const finalPostId = publishData.id;
-                console.log(`[Meta Engine] Real Post success! ID: ${finalPostId}`);
-
-                // Update Post state to completed
-                const currentDb4 = readDB();
-                const matchedPost = currentDb4.scheduled_posts.find(p => p.id === post.id);
-                if (matchedPost) {
-                  matchedPost.status = "completed";
-                  matchedPost.postedAt = new Date().toISOString();
-                  matchedPost.instagramId = finalPostId;
-                }
-
-                currentDb4.publish_logs.push({
-                  id: "log_" + Math.random().toString(36).substring(2, 11),
-                  scheduledPostId: post.id,
-                  timestamp: new Date().toISOString(),
-                  status: "success",
-                  message: `🎉 [Meta Engine] Post successfully published to LIVE Instagram page! Feed ID: ${finalPostId}`,
-                  attemptCount: 1
-                });
-                writeDB(currentDb4);
-
-              } catch (error: any) {
-                console.error("[Meta Engine] Error posting:", error);
-                
-                const currentDbError = readDB();
-                const matchedPost = currentDbError.scheduled_posts.find(p => p.id === post.id);
-                const errorMsg = error.message || "";
-                
-                const isPermissionOrAuthError = errorMsg.includes("permission") ||
-                  errorMsg.includes("(#10)") ||
-                  errorMsg.includes("access_token") ||
-                  errorMsg.includes("token") ||
-                  errorMsg.includes("403") ||
-                  errorMsg.includes("401") ||
-                  errorMsg.includes("unauthorized");
-
-                if (account.isReal) {
-                  // For real physical accounts, do NOT fake success or sandbox-complete.
-                  // Fail cleanly and output the exact error with actionable instructions.
-                  if (matchedPost) {
-                    matchedPost.status = "failed";
-                    matchedPost.error = errorMsg;
-                  }
-
-                  let diagnosticMessage = `❌ [Meta Engine] Live Publication Failed: "${errorMsg}".`;
-                  
-                  if (errorMsg.includes("(#10)") || errorMsg.includes("permission")) {
-                    diagnosticMessage += `\n\n🔍 DIAGNOSTIC GUIDE (How to resolve this on Meta Developer Portal):
-1. CHOOSE INSTAGRAM CREATOR/BUSINESS ACCOUNT: Ensure your @${account.username} account is fully converted to an Instagram Professional (Business or Creator) account, and is linked to your Facebook Page.
-2. VERIFY METADATA ROLES: If your Meta Developer App is in "Development" mode, you MUST go to App Dashboard > Roles > Roles > Instagram Testers and add your Instagram handle "@${account.username}". Then, log into Instagram, go to Settings > Website Permissions > Tester Invitations, and accept the invitation.
-3. VERIFY TOKEN SCOPES: Make sure the Page/User Access Token you provided has these required permissions: "instagram_content_publish", "instagram_basic", "pages_read_engagement", and "pages_show_list". You can use the Meta Graph API Explorer to generate a token with these exact scopes.`;
-                  } else {
-                    diagnosticMessage += `\n\n🔍 DIAGNOSTIC TIP: Please verify your Meta Page/User Access Token is still valid, and your Instagram Business Account ID (${account.instagramBusinessAccountId || "not provided"}) matches your account settings exactly.`;
-                  }
-
-                  currentDbError.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "error",
-                    message: diagnosticMessage,
-                    attemptCount: 1
-                  });
-                  
-                  writeDB(currentDbError);
-
-                } else if (isPermissionOrAuthError) {
-                  // Fall back gracefully to Simulation so they can test comments and replies ONLY for simulated/sandbox accounts!
-                  currentDbError.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "warning",
-                    message: `⚠️ [Meta API] Sandbox simulated publishing bypass: "${errorMsg}"`,
-                    attemptCount: 1
-                  });
-                  
-                  currentDbError.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "info",
-                    message: `🔄 [Sandbox Gateway] Intelligently routing post through the SFR DigiTech Sandbox Simulator/Bypass proxy...`,
-                    attemptCount: 1
-                  });
-                  
-                  writeDB(currentDbError);
-
-                  // Trigger simulation flow after a brief pause
-                  setTimeout(() => {
-                    try {
-                      const finalDb = readDB();
-                      const finalPost = finalDb.scheduled_posts.find(p => p.id === post.id);
-                      if (finalPost) {
-                        const generatedIgId = "ig_post_" + Math.random().toString(36).substring(2, 11);
-                        finalPost.status = "completed";
-                        finalPost.postedAt = new Date().toISOString();
-                        finalPost.instagramId = generatedIgId;
-                        finalPost.error = undefined; // clear error
-
-                        finalDb.publish_logs.push({
-                          id: "log_" + Math.random().toString(36).substring(2, 11),
-                          scheduledPostId: post.id,
-                          timestamp: new Date().toISOString(),
-                          status: "success",
-                          message: `🎉 [Sandbox Gateway] Successfully simulated live publication! Generated Post ID: ${generatedIgId}. You can now test your comment rules and direct message auto-replies.`,
-                          attemptCount: 1
-                        });
-                        writeDB(finalDb);
-                      }
-                    } catch (simErr) {
-                      console.error("[Sandbox Gateway] Simulation error:", simErr);
-                    }
-                  }, 2000);
-
-                } else {
-                  if (matchedPost) {
-                    matchedPost.status = "failed";
-                    matchedPost.error = error.message;
-                  }
-
-                  currentDbError.publish_logs.push({
-                    id: "log_" + Math.random().toString(36).substring(2, 11),
-                    scheduledPostId: post.id,
-                    timestamp: new Date().toISOString(),
-                    status: "error",
-                    message: `❌ [Meta Engine] Error: ${error.message || "Unknown error during Meta publishing."}`,
-                    attemptCount: 1
-                  });
-                  writeDB(currentDbError);
-                }
-              }
-            })();
+            publishRealPostToMeta(post.id, account.id, publicUrlBase).catch((err) => {
+              console.error("[Daemon Meta Engine Error] Failed to run publishRealPostToMeta:", err);
+            });
 
           } else {
             // Simulated local flow
