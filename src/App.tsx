@@ -286,9 +286,29 @@ export default function App() {
             </div>
 
             {authError && (
-              <div className="p-3.5 bg-rose-950/20 border border-rose-900/30 text-rose-400 text-xs rounded-xl flex items-start space-x-2.5">
-                <AlertCircle size={15} className="mt-0.5 shrink-0" />
-                <span>{authError}</span>
+              <div className="p-3.5 bg-rose-950/20 border border-rose-900/30 text-rose-400 text-xs rounded-xl flex flex-col space-y-2">
+                <div className="flex items-start space-x-2.5">
+                  <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                  <span>{authError}</span>
+                </div>
+                {authError.includes("Failed to communicate") && (
+                  <div className="text-[11px] text-zinc-400 pl-6 space-y-1.5">
+                    <p>
+                      This is usually caused by your browser blocking <strong>third-party cookies</strong> inside the Google AI Studio preview iframe.
+                    </p>
+                    <p>
+                      To fix this, please open the application directly in a new tab:
+                    </p>
+                    <a 
+                      href={window.location.href} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 bg-[#E1306C] hover:opacity-90 text-white font-mono text-[10px] uppercase tracking-widest font-black rounded-lg transition-all"
+                    >
+                      <span>🚀 Open in New Tab</span>
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 
