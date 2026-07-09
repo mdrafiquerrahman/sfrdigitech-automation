@@ -64,19 +64,42 @@ export default function InstagramPreview({ post, username = "instagram_creator" 
       {/* Main Media Block */}
       <div className="relative aspect-square bg-gray-50 flex items-center justify-center overflow-hidden group">
         <AnimatePresence mode="wait">
-          <motion.img
-            key={currentSlide}
-            src={activeMedia[currentSlide]}
-            alt={`Post content ${currentSlide + 1}`}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
-            }}
-          />
+          {(() => {
+            const mediaUrl = activeMedia[currentSlide] || "";
+            const isVideo = mediaUrl.startsWith("data:video/") || mediaUrl.endsWith(".mp4") || type === "reel";
+            if (isVideo) {
+              return (
+                <motion.video
+                  key={currentSlide}
+                  src={mediaUrl}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full h-full object-cover animate-fade-in"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                />
+              );
+            }
+            return (
+              <motion.img
+                key={currentSlide}
+                src={mediaUrl}
+                alt={`Post content ${currentSlide + 1}`}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.2 }}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
+                }}
+              />
+            );
+          })()}
         </AnimatePresence>
 
         {/* Carousel Slide Indicators */}
@@ -160,14 +183,32 @@ export default function InstagramPreview({ post, username = "instagram_creator" 
     <div className="relative bg-black text-white border border-gray-900 rounded-2xl overflow-hidden shadow-xl max-w-sm mx-auto aspect-[9/16] flex flex-col justify-between">
       {/* Background Media */}
       <div className="absolute inset-0 z-0">
-        <img
-          src={activeMedia[0]}
-          alt="Reel content"
-          className="w-full h-full object-cover brightness-[0.75]"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
-          }}
-        />
+        {(() => {
+          const mediaUrl = activeMedia[0] || "";
+          const isVideo = mediaUrl.startsWith("data:video/") || mediaUrl.endsWith(".mp4");
+          if (isVideo) {
+            return (
+              <video 
+                src={mediaUrl} 
+                className="w-full h-full object-cover brightness-[0.75]"
+                autoPlay
+                muted
+                loop
+                playsInline
+              />
+            );
+          }
+          return (
+            <img
+              src={mediaUrl}
+              alt="Reel content"
+              className="w-full h-full object-cover brightness-[0.75]"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80";
+              }}
+            />
+          );
+        })()}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
       </div>
 

@@ -16,7 +16,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  Send,
+  Zap,
+  RefreshCw
 } from "lucide-react";
 import { ScheduledPost, InstagramAccount } from "../types";
 
@@ -45,6 +48,53 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
   const [editedCaption, setEditedCaption] = useState("");
   const [editedTime, setEditedTime] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Manual trigger states
+  const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
+  const [isTriggeringCron, setIsTriggeringCron] = useState(false);
+  const [cronStatus, setCronStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const handleTriggerCron = async () => {
+    setIsTriggeringCron(true);
+    setCronStatus(null);
+    try {
+      const res = await fetch("/api/cron");
+      const data = await res.json();
+      if (res.ok) {
+        setCronStatus({ type: "success", text: "Successfully completed physical scheduler tick!" });
+        setTimeout(() => setCronStatus(null), 5000);
+      } else {
+        setCronStatus({ type: "error", text: data.error || "Failed to trigger physical scheduler tick." });
+      }
+    } catch (e: any) {
+      setCronStatus({ type: "error", text: "Network error triggering scheduler." });
+    } finally {
+      setIsTriggeringCron(false);
+      onPostAction();
+      fetchPosts();
+    }
+  };
+
+  const handlePublishNow = async (id: string) => {
+    setPublishingPostId(id);
+    setCronStatus(null);
+    try {
+      const res = await fetch(`/api/posts/${id}/publish`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setCronStatus({ type: "success", text: "Successfully initiated physical posting of post!" });
+        setTimeout(() => setCronStatus(null), 5000);
+      } else {
+        setCronStatus({ type: "error", text: data.error || "Failed to publish post immediately." });
+      }
+    } catch (e: any) {
+      setCronStatus({ type: "error", text: "Connection error during direct publish." });
+    } finally {
+      setPublishingPostId(null);
+      onPostAction();
+      fetchPosts();
+    }
+  };
 
   const fetchPosts = async () => {
     setIsLoading(true);
@@ -182,6 +232,17 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
 
         {/* Filters bar */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Force Scheduler sweep on live Vercel */}
+          <button
+            onClick={handleTriggerCron}
+            disabled={isTriggeringCron}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-[#E1306C]/10 to-rose-600/10 hover:from-[#E1306C]/20 hover:to-rose-600/20 text-rose-400 border border-rose-900/30 text-[10px] font-mono font-bold uppercase tracking-wider rounded-lg transition cursor-pointer disabled:opacity-50"
+            title="Trigger background engine tick manually on Vercel"
+          >
+            <RefreshCw size={11} className={isTriggeringCron ? "animate-spin" : ""} />
+            <span>{isTriggeringCron ? "Ticking Cron..." : "Trigger Scheduler Cron"}</span>
+          </button>
+
           {/* Node account Filter */}
           <div className="relative">
             <select
@@ -216,6 +277,23 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
           </div>
         </div>
       </div>
+
+      {/* Cron / Run scheduler status notification */}
+      {cronStatus && (
+        <div className={`p-3.5 rounded-xl border font-mono text-[10px] flex items-center justify-between ${
+          cronStatus.type === "success" 
+            ? "bg-emerald-950/30 border-emerald-900/30 text-emerald-400" 
+            : "bg-rose-950/30 border-rose-900/30 text-rose-400"
+        }`}>
+          <div className="flex items-center space-x-2">
+            {cronStatus.type === "success" ? <CheckCircle size={14} className="text-emerald-500" /> : <XCircle size={14} className="text-rose-500" />}
+            <span>{cronStatus.text}</span>
+          </div>
+          <button onClick={() => setCronStatus(null)} className="text-[9px] uppercase font-bold opacity-75 hover:opacity-100 cursor-pointer">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Tabs Menu */}
       <div className="flex border-b border-[#27272a] pb-px">
@@ -386,6 +464,21 @@ export default function QueueManager({ accounts, postsUpdatedTrigger, onPostActi
                       title="Edit Schedule Configurations"
                     >
                       <Edit3 size={12} />
+                    </button>
+                  )}
+
+                  {(post.status === "pending" || post.status === "failed") && (
+                    <button
+                      onClick={() => handlePublishNow(post.id)}
+                      disabled={publishingPostId !== null}
+                      className="p-2 bg-[#E1306C] hover:bg-opacity-90 text-white rounded-lg border border-[#E1306C] transition flex items-center justify-center cursor-pointer disabled:opacity-50"
+                      title="Publish to Instagram Feed immediately"
+                    >
+                      {publishingPostId === post.id ? (
+                        <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Send size={12} />
+                      )}
                     </button>
                   )}
 

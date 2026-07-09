@@ -783,7 +783,7 @@ app.post("/api/instagram/subscribe-webhook", async (req, res) => {
     return res.status(404).json({ error: "Account not found." });
   }
 
-  const accessToken = acc.accessToken;
+  const accessToken = acc.messagingAccessToken || acc.accessToken;
   const isRealToken = accessToken && accessToken.length > 30 && !accessToken.includes("mock");
 
   if (!isRealToken) {
@@ -794,9 +794,21 @@ app.post("/api/instagram/subscribe-webhook", async (req, res) => {
     const isInstagramLoginToken = accessToken.trim().toUpperCase().startsWith("IGAA");
     const graphHost = isInstagramLoginToken ? "graph.instagram.com" : "graph.facebook.com";
     console.log(`[Webhook Subscribe] Explicitly subscribing @${acc.username} via ${graphHost}...`);
-    const subscribeUrl = `https://${graphHost}/v20.0/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,comments,mentions&access_token=${accessToken}`;
     
-    const subRes = await fetch(subscribeUrl, { method: "POST" });
+    // We send form URL-encoded body instead of empty POST with query parameters.
+    // This avoids empty POST bodies being rejected as "Invalid JSON for postcard" by Meta Graph API,
+    // and correctly delivers parameters via application/x-www-form-urlencoded format.
+    const subRes = await fetch(`https://${graphHost}/v20.0/me/subscribed_apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        subscribed_fields: "messages,messaging_postbacks,comments,mentions",
+        access_token: accessToken
+      }).toString()
+    });
+
     const resData: any = await subRes.json().catch(() => ({}));
     const resText = JSON.stringify(resData);
     
@@ -1090,6 +1102,14 @@ app.post("/api/posts", (req, res) => {
   });
 
   writeDB(db);
+
+  // If the post is scheduled for right now or in the past (immediate release), trigger the scheduler
+  if (new Date(newPost.scheduledFor) <= new Date()) {
+    executeSchedulerTick(true).catch((err) => {
+      console.error("[Manual API Schedule] Immediate scheduler tick failed:", err);
+    });
+  }
+
   res.json(newPost);
 });
 
@@ -1156,6 +1176,48 @@ app.post("/api/posts/:id/duplicate", (req, res) => {
 
   writeDB(db);
   res.json(newPost);
+});
+
+// Publish post immediately (Physical Schedule Posting Trigger)
+app.post("/api/posts/:id/publish", async (req, res) => {
+  const db = readDB();
+  const { id } = req.params;
+  const postIndex = db.scheduled_posts.findIndex((p) => p.id === id);
+
+  if (postIndex === -1) {
+    return res.status(404).json({ error: "Scheduled post not found." });
+  }
+
+  const post = db.scheduled_posts[postIndex];
+  
+  // Set to pending with a scheduled time of right now (which makes it due)
+  post.scheduledFor = new Date().toISOString();
+  post.status = "pending";
+  post.error = null;
+
+  db.publish_logs.push({
+    id: "log_" + Math.random().toString(36).substring(2, 11),
+    scheduledPostId: id,
+    timestamp: new Date().toISOString(),
+    status: "info",
+    message: `Manual 'Publish Now' triggered for post ${id}. Scheduled time forced to current instant.`,
+    attemptCount: 1
+  });
+
+  writeDB(db);
+
+  try {
+    // Run the scheduler tick to immediately capture and process this post physically
+    await executeSchedulerTick(true);
+    
+    // Read updated status
+    const updatedDb = readDB();
+    const updatedPost = updatedDb.scheduled_posts.find((p) => p.id === id);
+    res.json({ success: true, post: updatedPost });
+  } catch (err: any) {
+    console.error(`[Manual Publish Error] Failed to publish post ${id}:`, err);
+    res.status(500).json({ error: err.message || "Failed to trigger publishing." });
+  }
 });
 
 // Delete schedule
@@ -3715,8 +3777,8 @@ app.get("/api/debug-files", (req, res) => {
 });
 
 if (process.env.VERCEL) {
-  // Start the background posting scheduler simulation in serverless environment
-  runAutomatedScheduler();
+  // In the Vercel serverless environment, background setInterval threads can cause timeouts.
+  // The scheduler is dynamically invoked on request middlewares and triggered via Vercel Cron.
 } else {
   startServer();
 }

@@ -14,7 +14,8 @@ import {
   FileText,
   AlertCircle,
   HelpCircle,
-  CheckCircle
+  CheckCircle,
+  Send
 } from "lucide-react";
 import { InstagramAccount, MediaAsset } from "../types";
 import InstagramPreview from "./InstagramPreview";
@@ -40,6 +41,7 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
   const [scheduleDate, setScheduleDate] = useState(prefilledDate || "2026-07-04");
   const [scheduleTime, setScheduleTime] = useState("12:00");
   const [selectedTimezone, setSelectedTimezone] = useState("UTC");
+  const [publishImmediately, setPublishImmediately] = useState(false);
 
   // Gemini Caption Copilot States
   const [aiDescription, setAiDescription] = useState("");
@@ -180,7 +182,9 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
 
     setIsSubmitting(true);
 
-    const isoDateTime = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+    const isoDateTime = publishImmediately 
+      ? new Date().toISOString()
+      : new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
 
     try {
       const res = await fetch("/api/posts", {
@@ -198,7 +202,12 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
       });
 
       if (res.ok) {
-        setStatusMessage({ type: "success", text: "Post successfully integrated in Prisma scheduled_posts database!" });
+        setStatusMessage({ 
+          type: "success", 
+          text: publishImmediately 
+            ? "Post successfully created and triggered for immediate physical publication!" 
+            : "Post successfully scheduled in publication database!" 
+        });
         // Reset composer form state
         setCaption("");
         setMediaUrls([]);
@@ -326,16 +335,27 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
             {/* Selected items strip */}
             {mediaUrls.length > 0 && (
               <div className="grid grid-cols-5 gap-2 pt-1">
-                {mediaUrls.map((url, index) => (
-                  <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-[#27272a] group bg-black/50">
-                    <img 
-                      src={url} 
-                      alt={`Selection ${index}`} 
-                      className="w-full h-full object-cover" 
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
-                      }}
-                    />
+                {mediaUrls.map((url, index) => {
+                  const isVideo = url.startsWith("data:video/") || url.endsWith(".mp4");
+                  return (
+                    <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-[#27272a] group bg-black/50">
+                      {isVideo ? (
+                        <video 
+                          src={url} 
+                          className="w-full h-full object-cover" 
+                          muted
+                          playsInline
+                        />
+                      ) : (
+                        <img 
+                          src={url} 
+                          alt={`Selection ${index}`} 
+                          className="w-full h-full object-cover" 
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
+                          }}
+                        />
+                      )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -352,7 +372,7 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
                       #{index + 1}
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
 
@@ -363,18 +383,30 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
                 <span className="text-[8px] opacity-85">Click to append / Hover to delete</span>
               </div>
               <div className="flex space-x-2.5 overflow-x-auto pb-1.5 scrollbar-thin">
-                {mediaLibrary.map((asset) => (
-                  <div key={asset.id} className="relative group shrink-0 w-12 h-12">
-                    <img
-                      src={asset.url}
-                      alt={asset.name}
-                      onClick={() => handleSelectFromLibrary(asset)}
-                      className="w-full h-full rounded-lg object-cover border border-[#27272a] hover:border-[#E1306C] cursor-pointer transition"
-                      title={asset.name}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
-                      }}
-                    />
+                {mediaLibrary.map((asset) => {
+                  const isVideo = asset.type === "video" || (asset.url && (asset.url.startsWith("data:video/") || asset.url.endsWith(".mp4")));
+                  return (
+                    <div key={asset.id} className="relative group shrink-0 w-12 h-12">
+                      {isVideo ? (
+                        <video
+                          src={asset.url}
+                          onClick={() => handleSelectFromLibrary(asset)}
+                          className="w-full h-full rounded-lg object-cover border border-[#27272a] hover:border-[#E1306C] cursor-pointer transition"
+                          title={asset.name}
+                          muted
+                        />
+                      ) : (
+                        <img
+                          src={asset.url}
+                          alt={asset.name}
+                          onClick={() => handleSelectFromLibrary(asset)}
+                          className="w-full h-full rounded-lg object-cover border border-[#27272a] hover:border-[#E1306C] cursor-pointer transition"
+                          title={asset.name}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=60";
+                          }}
+                        />
+                      )}
                     <button
                       type="button"
                       onClick={async (e) => {
@@ -407,7 +439,7 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
                       {deleteConfirmId === asset.id ? <CheckCircle size={10} /> : <Trash2 size={10} />}
                     </button>
                   </div>
-                ))}
+                );})}
               </div>
             </div>
           </div>
@@ -427,50 +459,79 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
             />
           </div>
 
-          {/* 5. Date and Time Release Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Release Date</label>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={scheduleDate}
-                  onChange={(e) => setScheduleDate(e.target.value)}
-                  className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C]"
-                />
-              </div>
+          {/* 5. Direct Physical Publish Toggle Option */}
+          <div className="p-4 bg-[#E1306C]/5 border border-[#E1306C]/10 rounded-xl flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <label className="text-[10px] font-black text-white uppercase tracking-widest font-mono flex items-center space-x-1.5">
+                <Sparkles size={11} className="text-[#E1306C]" />
+                <span>Publish Instantly (Vercel Live Feed)</span>
+              </label>
+              <p className="text-[9px] text-zinc-500 font-mono">Skip the scheduled queue and physically post directly onto Instagram now.</p>
             </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Release Time</label>
-              <div className="relative">
-                <input
-                  type="time"
-                  value={scheduleTime}
-                  onChange={(e) => setScheduleTime(e.target.value)}
-                  className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C]"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Time Zone</label>
-              <select
-                value={selectedTimezone}
-                onChange={(e) => setSelectedTimezone(e.target.value)}
-                className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C] cursor-pointer"
-              >
-                <option value="UTC">UTC (GMT+00:00)</option>
-                <option value="Asia/Kolkata">IST / India (GMT+05:30)</option>
-                <option value="America/New_York">EST / New York (GMT-05:00)</option>
-                <option value="Europe/London">GMT / London (GMT+00:00)</option>
-                <option value="Asia/Tokyo">JST / Tokyo (GMT+09:00)</option>
-                <option value="Europe/Paris">CET / Paris (GMT+01:00)</option>
-                <option value="America/Los_Angeles">PST / Los Angeles (GMT-08:00)</option>
-                <option value="Asia/Singapore">SGT / Singapore (GMT+08:00)</option>
-              </select>
-            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input 
+                type="checkbox" 
+                checked={publishImmediately} 
+                onChange={(e) => setPublishImmediately(e.target.checked)} 
+                className="sr-only peer"
+              />
+              <div className="w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#E1306C] peer-checked:after:bg-white"></div>
+            </label>
           </div>
+
+          {/* 6. Date and Time Release Grid or Direct Release Info */}
+          {!publishImmediately ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Release Date</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Release Time</label>
+                <div className="relative">
+                  <input
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Time Zone</label>
+                <select
+                  value={selectedTimezone}
+                  onChange={(e) => setSelectedTimezone(e.target.value)}
+                  className="w-full bg-[#09090b] border border-[#27272a] text-xs font-mono text-white rounded-xl p-3 focus:outline-none focus:border-[#E1306C] cursor-pointer"
+                >
+                  <option value="UTC">UTC (GMT+00:00)</option>
+                  <option value="Asia/Kolkata">IST / India (GMT+05:30)</option>
+                  <option value="America/New_York">EST / New York (GMT-05:00)</option>
+                  <option value="Europe/London">GMT / London (GMT+00:00)</option>
+                  <option value="Asia/Tokyo">JST / Tokyo (GMT+09:00)</option>
+                  <option value="Europe/Paris">CET / Paris (GMT+01:00)</option>
+                  <option value="America/Los_Angeles">PST / Los Angeles (GMT-08:00)</option>
+                  <option value="Asia/Singapore">SGT / Singapore (GMT+08:00)</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3.5 bg-gradient-to-r from-rose-950/10 to-transparent border border-rose-950/40 rounded-xl">
+              <p className="text-[10px] font-mono text-zinc-400 flex items-center space-x-1.5">
+                <Sparkles size={12} className="text-[#E1306C] animate-pulse shrink-0" />
+                <span>Direct release mode is active. This content will bypass the calendar scheduler and publish to Instagram instantly.</span>
+              </p>
+            </div>
+          )}
 
           <button
             type="submit"
@@ -480,12 +541,12 @@ export default function PostComposer({ accounts, mediaLibrary, prefilledDate, on
             {isSubmitting ? (
               <>
                 <div className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Synchronising with database...</span>
+                <span>{publishImmediately ? "Publishing physically to Meta..." : "Synchronising with database..."}</span>
               </>
             ) : (
               <>
-                <Calendar size={15} />
-                <span>Confirm Scheduled Release</span>
+                {publishImmediately ? <Send size={15} /> : <Calendar size={15} />}
+                <span>{publishImmediately ? "Publish Instantly Now" : "Confirm Scheduled Release"}</span>
               </>
             )}
           </button>

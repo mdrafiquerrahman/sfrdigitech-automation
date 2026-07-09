@@ -278,10 +278,10 @@ const mockFetch = async (url: string, options: any = {}) => {
     const newAsset = {
       id: "med_" + Math.random().toString(36).substring(2, 11),
       userId: "usr_active",
-      name: body?.suggestedName || "uploaded_mood",
-      url: body?.mediaUrl || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
-      type: "image",
-      size: "115 KB",
+      name: body?.name || body?.suggestedName || "uploaded_mood",
+      url: body?.url || body?.mediaUrl || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
+      type: body?.type || "image",
+      size: body?.size || "115 KB",
       createdAt: new Date().toISOString()
     };
     db.media.push(newAsset);
